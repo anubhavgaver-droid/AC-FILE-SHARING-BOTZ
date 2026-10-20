@@ -1,0 +1,437 @@
+import asyncio
+import html
+import os
+import sys
+
+from pyrogram import Client, filters
+from pyrogram.errors import FloodWait
+from pyrogram.types import InlineKeyboardButton as Btn
+from pyrogram.types import InlineKeyboardMarkup as Markup
+
+from config import OWNER_ID
+from database import DEFAULTS, db
+from helpers import (
+    STATE,
+    admin_f,
+    clear_admin_menu,
+    edit_msg as edit,
+    fmt_time,
+    fwd_info,
+    is_bot_admin,
+    log_event,
+    set_admin_menu,
+    shorten,
+)
+
+PM = filters.private & admin_f
+owner_f = filters.user(OWNER_ID)
+
+LABELS = {
+    "welcome_text": "Welcome Text",
+    "welcome_photo": "Welcome Photo",
+    "welcome_buttons": "Welcome Buttons",
+    "verify_mode": "Verify Mode",
+    "v1_api_url": "Verify-1 API URL",
+    "v1_api_key": "Verify-1 API Key",
+    "v2_api_url": "Verify-2 API URL",
+    "v2_api_key": "Verify-2 API Key",
+    "verify_expire": "Verify Valid For",
+    "verify_gap": "Gap 1st→2nd Verify",
+    "verify_min_time": "Min Verify Time",
+    "verify_tutorial": "Tutorial Link",
+    "verify_text": "Verify Text",
+    "protect_content": "Protect Content",
+    "auto_delete": "Auto Delete",
+    "auto_delete_text": "Auto-Delete Text",
+    "wait_text": "Please-Wait Text",
+    "fsub_text": "Force-Sub Text",
+    "plans_text": "Plans Text",
+    "sponsor_label": "Sponsor Button Text",
+    "sponsor_url": "Sponsor Channel Link",
+    "log_channel": "Log Channel ID",
+    "stream_enabled": "Streaming (Premium)",
+    "stream_expire": "Stream Link Valid",
+    "stream_base_url": "Server Public URL",
+    "premium_contact": "Buy Contact",
+    "premium_skip_verify": "Premium skips Verify",
+    "premium_skip_fsub": "Premium skips Force-Sub",
+    "premium_no_autodelete": "Premium: No Auto-Delete",
+}
+PAGES = {
+    "welcome": ("🖼 Welcome", ["welcome_text", "welcome_photo", "welcome_buttons"]),
+    "verify": (
+        "🔐 Verification",
+        ["verify_mode", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
+         "verify_expire", "verify_gap", "verify_min_time", "verify_tutorial", "verify_text"],
+    ),
+    "files": ("🗑 Files", ["protect_content", "auto_delete", "auto_delete_text", "wait_text"]),
+    "fsub": ("📢 Force-Sub", ["fsub_text"]),
+    "sponsor": ("🤝 Sponsor", ["sponsor_label", "sponsor_url"]),
+    "logs": ("📝 Log Channel", ["log_channel"]),
+    "stream": ("🎬 Streaming", ["stream_enabled", "stream_expire", "stream_base_url"]),
+    "premium": (
+        "💎 Premium",
+        ["plans_text", "premium_contact", "premium_skip_verify", "premium_skip_fsub",
+         "premium_no_autodelete"],
+    ),
+}
+BOOL = {"stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
+NUM = {"stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
+RAW = {"welcome_photo", "welcome_buttons", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
+       "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url"}
+
+
+def show(key):
+    v = db.get(key)
+    if key in BOOL:
+        return "✅" if v else "❌"
+    if key == "verify_mode":
+        return {0: "Off", 1: "1 step", 2: "2 steps"}[int(v)]
+    if key in NUM:
+        return fmt_time(v) if v else "Off"
+    return "✔️" if v else "—"
+
+
+def main_kb():
+    rows = [[Btn(t, callback_data=f"pg_{k}")] for k, (t, _) in PAGES.items()]
+    rows.append([Btn("⬅️ Back", callback_data="home")])
+    return Markup(rows)
+
+
+async def page_kb(page):
+    rows = [[Btn(f"{LABELS[k]}: {show(k)}", callback_data=f"k_{k}")] for k in PAGES[page][1]]
+    if page == "fsub":
+        rows.append([Btn("➕ Add Channel", callback_data="fs_add")])
+        async for c in db.fsub.find({}):
+            rows.append([Btn(f"🗑 {c['title']} ({c['mode']})", callback_data=f"fs_del_{c['chat_id']}")])
+    rows.append([Btn("⬅️ Back", callback_data="pg_main")])
+    return Markup(rows)
+
+
+def page_of(key):
+    return next(p for p, (_, ks) in PAGES.items() if key in ks)
+
+
+@Client.on_message(filters.command("settings") & PM)
+async def settings(client, m):
+    await m.reply("⚙️ <b>Bot Settings</b>", reply_markup=main_kb())
+
+
+@Client.on_callback_query(filters.regex(r"^(pg|k)_") & admin_f)
+async def settings_cb(client, q):
+    d = q.data
+    if d.startswith("pg_") and (STATE.get(q.from_user.id) or {}).get("mode") in ("set", "fsadd", "fsadd2"):
+        STATE.pop(q.from_user.id, None)  # Back dabane par pending input cancel
+    if d == "pg_main":
+        return await edit(q.message, "⚙️ <b>Bot Settings</b>", main_kb())
+    if d.startswith("pg_"):
+        page = d[3:]
+        hint = "\n\nTap a 🗑 button to remove that channel" if page == "fsub" else ""
+        return await edit(q.message, f"{PAGES[page][0]} settings{hint}", await page_kb(page))
+    key = d[2:]
+    if key in BOOL:
+        await db.set(key, not db.get(key))
+    elif key == "verify_mode":
+        await db.set(key, (int(db.get(key)) + 1) % 3)
+    else:
+        cur = str(db.get(key))
+        if "key" in key and cur:
+            cur = cur[:4] + "…"
+        STATE[q.from_user.id] = {"mode": "set", "key": key, "msg": q.message}
+        placeholders = "\n\nPlaceholders: <code>{mention} {first} {time} {stage} {mode}</code>" \
+            if key.endswith("_text") else ""
+        return await edit(
+            q.message,
+            f"✏️ <b>{LABELS[key]}</b>: send the new value.\n\nCurrent: <code>{html.escape(cur)[:300]}</code>"
+            f"{placeholders}\n\n/default = reset, /cancel = abort",
+            Markup([[Btn("⬅️ Back", callback_data=f"pg_{page_of(key)}")]]),
+        )
+    await q.message.edit_reply_markup(await page_kb(page_of(key)))
+
+
+@Client.on_message(PM, group=2)
+async def set_value(client, m):
+    st = STATE.get(m.from_user.id)
+    if st and st.get("mode") == "fsadd":
+        return await fsadd_input(client, m)
+    if not st or st.get("mode") != "set":
+        return
+    key = st["key"]
+    txt = (m.text or "").strip()
+    if txt.startswith("/") and txt.lower() != "/default":
+        return
+    if txt.lower() == "/default":
+        val = DEFAULTS[key]
+    elif key == "welcome_photo" and m.photo:
+        val = m.photo.file_id
+    elif not m.text:
+        return await m.reply("📝 Please send text.")
+    elif key == "log_channel":
+        if not txt.lstrip("-").isdigit() or not await is_bot_admin(client, int(txt)):
+            return await m.reply("❌ Send a valid channel ID (-100...) and make the bot an admin in that channel.")
+        val = int(txt)
+    elif key in NUM:
+        if not txt.isdigit():
+            return await m.reply("🔢 Please send a number (in seconds).")
+        val = int(txt)
+    elif key in RAW:
+        val = txt
+    else:
+        val = m.text.html
+    STATE.pop(m.from_user.id)
+    await db.set(key, val)
+    await m.reply("✅ Saved.", reply_markup=Markup([[Btn("⬅️ Settings", callback_data=f"pg_{page_of(key)}")]]))
+
+
+# ---------------- DB channel ----------------
+@Client.on_message(filters.command("setdb") & PM)
+async def setdb(client, m):
+    if len(m.command) < 2 or not m.command[1].lstrip("-").isdigit():
+        return await m.reply("Use: <code>/setdb -100xxxxxxxxxx</code>")
+    cid = int(m.command[1])
+    if not await is_bot_admin(client, cid):
+        return await m.reply("❌ The bot is not an admin in that channel.")
+    await db.set("db_channel", cid)
+    await m.reply(f"✅ DB channel set: <code>{cid}</code>")
+
+
+# ---------------- force subscribe ----------------
+@Client.on_message(filters.command("addfsub") & PM)
+async def addfsub(client, m):
+    if len(m.command) < 3 or m.command[2] not in ("public", "private", "request"):
+        return await m.reply("Use: <code>/addfsub -100xxxxxxxxxx public|private|request</code>")
+    cid, mode = int(m.command[1]), m.command[2]
+    try:
+        chat = await client.get_chat(cid)
+        if mode == "public" and chat.username:
+            link = f"https://t.me/{chat.username}"
+        elif mode == "request":
+            link = (await client.create_chat_invite_link(cid, creates_join_request=True)).invite_link
+        else:
+            link = (await client.create_chat_invite_link(cid)).invite_link
+    except Exception as e:
+        return await m.reply(f"❌ Make the bot an admin with the invite-users permission.\n<code>{e}</code>")
+    await db.fsub.update_one(
+        {"chat_id": cid}, {"$set": {"chat_id": cid, "mode": mode, "link": link, "title": chat.title}},
+        upsert=True,
+    )
+    await m.reply(f"✅ Added <b>{chat.title}</b> ({mode})")
+
+
+@Client.on_message(filters.command("delfsub") & PM)
+async def delfsub(client, m):
+    if len(m.command) < 2:
+        return await m.reply("Use: <code>/delfsub -100xxxxxxxxxx</code>")
+    r = await db.fsub.delete_one({"chat_id": int(m.command[1])})
+    await m.reply("✅ Removed." if r.deleted_count else "❌ Not found.")
+
+
+@Client.on_message(filters.command("fsubs") & PM)
+async def fsubs(client, m):
+    lines = [f"• <b>{c['title']}</b> — <code>{c['chat_id']}</code> ({c['mode']})" async for c in db.fsub.find({})]
+    await m.reply("\n".join(lines) or "No force-sub channels yet.")
+
+
+@Client.on_chat_join_request()
+async def join_request(client, r):
+    if await db.fsub.find_one({"chat_id": r.chat.id}):
+        await db.add_req(r.from_user.id, r.chat.id)
+
+
+# ---------------- admins ----------------
+@Client.on_message(filters.command("addadmin") & filters.private & owner_f)
+async def addadmin(client, m):
+    if len(m.command) < 2 or not m.command[1].isdigit():
+        return await m.reply("Use: <code>/addadmin user_id</code>")
+    uid = int(m.command[1])
+    await db.admins.update_one({"_id": uid}, {"$set": {"_id": uid}}, upsert=True)
+    await set_admin_menu(client, uid)
+    await m.reply("✅ Admin added.")
+
+
+@Client.on_message(filters.command("deladmin") & filters.private & owner_f)
+async def deladmin(client, m):
+    if len(m.command) < 2 or not m.command[1].isdigit():
+        return await m.reply("Use: <code>/deladmin user_id</code>")
+    await db.admins.delete_one({"_id": int(m.command[1])})
+    await clear_admin_menu(client, int(m.command[1]))
+    await m.reply("✅ Removed.")
+
+
+@Client.on_message(filters.command("admins") & PM)
+async def admins(client, m):
+    ids = [str(a["_id"]) async for a in db.admins.find({})]
+    await m.reply("👑 Owner: <code>%s</code>\nAdmins: %s" % (OWNER_ID, ", ".join(f"<code>{i}</code>" for i in ids) or "—"))
+
+
+# ---------------- stats / broadcast / help ----------------
+@Client.on_message(filters.command("stats") & PM)
+async def stats(client, m):
+    await m.reply(
+        f"👥 Users: <b>{await db.users.count_documents({})}</b>\n"
+        f"📢 Force-sub: <b>{await db.fsub.count_documents({})}</b>\n"
+        f"✅ Verified: <b>{await db.verified.count_documents({})}</b>"
+    )
+
+
+@Client.on_message(filters.command("broadcast") & PM)
+async def broadcast(client, m):
+    if not m.reply_to_message:
+        return await m.reply("Reply to a message with /broadcast.")
+    ok = fail = 0
+    status = await m.reply("📣 Broadcasting...")
+    async for uid in db.all_users():
+        try:
+            await m.reply_to_message.copy(uid)
+            ok += 1
+        except FloodWait as e:
+            await asyncio.sleep(e.value + 1)
+        except Exception:
+            fail += 1
+        await asyncio.sleep(0.1)
+    await status.edit_text(f"📣 Done. ✅ {ok} | ❌ {fail}")
+
+
+@Client.on_message(filters.command("help") & PM)
+async def help_cmd(client, m):
+    await m.reply(
+        "<b>Admin Commands Guide</b>\n"
+        "/genlink – generate a link for a file or message\n"
+        "/batch – batch link from the first and last channel posts\n"
+        "/custom_batch – collect files one by one, then tap Stop\n"
+        "/settings – welcome, verification, auto-delete, protection, texts\n"
+        "/setdb – set the database channel\n"
+        "/addfsub /delfsub /fsubs – force-sub channels (public/private/request)\n"
+        "/addpremium /removepremium /premiums – manage premium users\n"
+        "/addadmin /deladmin /admins – manage admins (owner)\n"
+        "/testverify 1|2 – test a verification API\n"
+        "/setlog – set the log channel (#NewUser, #BotRestarted)\n"
+        "/restart – restart the bot (owner)\n"
+        "/stats /broadcast /cancel"
+    )
+
+
+@Client.on_message(filters.command("testverify") & PM)
+async def testverify(client, m):
+    stage = m.command[1] if len(m.command) > 1 else "1"
+    if stage not in ("1", "2"):
+        return await m.reply("Use: <code>/testverify 1</code> or <code>/testverify 2</code>")
+    api_url, api_key = db.get(f"v{stage}_api_url"), db.get(f"v{stage}_api_key")
+    if not api_url or not api_key:
+        return await m.reply(
+            f"❌ Verify-{stage} API URL/Key is not set.\nGo to /settings → 🔐 Verification and fill in both."
+        )
+    mode = int(db.get("verify_mode") or 0)
+    short, info = await shorten(api_url, api_key, f"https://t.me/{client.me.username}?start=test")
+    note = "" if mode >= int(stage) else f"\n\n⚠️ Verify Mode is currently <b>{mode}</b>. Enable it in settings (1 or 2 steps)."
+    if short:
+        await m.reply(f"✅ Verify-{stage} API is working correctly.\n<code>{html.escape(short)}</code>{note}",
+                      disable_web_page_preview=True)
+    else:
+        await m.reply(f"❌ Verify-{stage} fail:\n<code>{html.escape(info)}</code>{note}")
+
+
+# ---------------- force-sub: add / remove from settings ----------------
+def back_fsub():
+    return Markup([[Btn("⬅️ Force-Sub", callback_data="pg_fsub")]])
+
+
+async def save_fsub(chat, mode, link):
+    await db.fsub.update_one(
+        {"chat_id": chat["id"]},
+        {"$set": {"chat_id": chat["id"], "mode": mode, "link": link, "title": chat["title"]}},
+        upsert=True,
+    )
+
+
+@Client.on_callback_query(filters.regex(r"^(fs_add|fs_del_|fsm_)") & admin_f)
+async def fsub_cb(client, q):
+    d, uid = q.data, q.from_user.id
+    if d == "fs_add":
+        STATE[uid] = {"mode": "fsadd"}
+        return await edit(
+            q.message,
+            "➕ <b>Add a Channel</b>\n\nSend the channel ID (<code>-100...</code>) or @username, "
+            "or forward any message from that channel.\n⚠️ The bot must be an admin in that channel.\n\n/cancel = abort",
+            Markup([[Btn("⬅️ Back", callback_data="pg_fsub")]]),
+        )
+    if d.startswith("fs_del_"):
+        await db.fsub.delete_one({"chat_id": int(d[7:])})
+        await q.answer("Removed")
+        return await q.message.edit_reply_markup(await page_kb("fsub"))
+    st = STATE.get(uid)
+    if not st or st.get("mode") != "fsadd2":
+        return await q.answer("Session expired. Tap Add Channel again.", show_alert=True)
+    mode = d[4:]  # private | request
+    try:
+        link = (await client.create_chat_invite_link(
+            st["chat_id"], creates_join_request=(mode == "request"))).invite_link
+    except Exception as e:
+        return await q.answer(f"Could not create the invite link: {e}"[:190], show_alert=True)
+    STATE.pop(uid)
+    await save_fsub({"id": st["chat_id"], "title": st["title"]}, mode, link)
+    label = "Request" if mode == "request" else "Normal"
+    await edit(q.message, f"✅ <b>{html.escape(st['title'])}</b> has been added ({label})", back_fsub())
+
+
+async def fsadd_input(client, m):
+    uid = m.from_user.id
+    txt = (m.text or "").strip()
+    if txt.startswith("/"):
+        return
+    info = fwd_info(m)
+    if info:
+        ref = info[0]
+    elif txt.lstrip("-").isdigit():
+        ref = int(txt)
+    else:
+        ref = txt.lstrip("@")
+    if not ref:
+        return await m.reply("❌ Send a channel ID, an @username, or a forwarded message from the channel.")
+    try:
+        chat = await client.get_chat(ref)
+    except Exception as e:
+        return await m.reply(f"❌ Channel not found: <code>{html.escape(str(e))}</code>")
+    if not await is_bot_admin(client, chat.id):
+        return await m.reply("❌ The bot is not an admin in that channel. Make it an admin and send it again.")
+    if chat.username:  # public channel -> seedha add
+        STATE.pop(uid, None)
+        await save_fsub({"id": chat.id, "title": chat.title}, "public", f"https://t.me/{chat.username}")
+        return await m.reply(f"✅ <b>{html.escape(chat.title)}</b> has been added (Public)", reply_markup=back_fsub())
+    STATE[uid] = {"mode": "fsadd2", "chat_id": chat.id, "title": chat.title}
+    await m.reply(
+        f"🔒 <b>{html.escape(chat.title)}</b> is a private channel.\nChoose the join mode:",
+        reply_markup=Markup([[Btn("✅ Normal", callback_data="fsm_private"),
+                              Btn("📩 Request", callback_data="fsm_request")],
+                             [Btn("⬅️ Back", callback_data="pg_fsub")]]),
+    )
+
+
+# ---------------- log channel + restart ----------------
+@Client.on_message(filters.command("setlog") & PM)
+async def setlog(client, m):
+    if len(m.command) < 2:
+        return await m.reply("Use: <code>/setlog -100xxxxxxxxxx</code> (to disable, use <code>/setlog off</code>)")
+    if m.command[1].lower() == "off":
+        await db.set("log_channel", 0)
+        return await m.reply("✅ Log channel disabled.")
+    if not m.command[1].lstrip("-").isdigit():
+        return await m.reply("❌ Please send a valid channel ID.")
+    cid = int(m.command[1])
+    if not await is_bot_admin(client, cid):
+        return await m.reply("❌ The bot is not an admin in that channel.")
+    await db.set("log_channel", cid)
+    await log_event(client, "✅ <b>Log channel connected.</b>\n#NewUser and #BotRestarted messages will appear here.")
+    await m.reply(f"✅ Log channel set: <code>{cid}</code>")
+
+
+@Client.on_message(filters.command("restart") & filters.private & owner_f)
+async def restart(client, m):
+    msg = await m.reply("🔄 <b>Restarting the bot...</b>")
+    await db.cfg.update_one(
+        {"_id": "restart"},
+        {"$set": {"chat_id": m.chat.id, "msg_id": msg.id, "by": m.from_user.id}},
+        upsert=True,
+    )
+    await asyncio.sleep(1)
+    os.execv(sys.executable, [sys.executable] + sys.argv)
