@@ -43,7 +43,7 @@ async def web_server():
     w = web.Application()
     stream.setup(w, app)
     weblinks.setup(w, app)
-    w.add_routes([web.get("/", root)])
+    w.add_routes([web.get("/health", root)])
     runner = web.AppRunner(w)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()
@@ -75,7 +75,7 @@ async def ping_loop():
         await asyncio.sleep(600)
         try:
             async with aiohttp.ClientSession() as s:
-                await s.get(url, timeout=aiohttp.ClientTimeout(total=20))
+                await s.get(url.rstrip("/") + "/health", timeout=aiohttp.ClientTimeout(total=20))
         except Exception:
             pass
 

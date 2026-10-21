@@ -11,7 +11,7 @@ Files: bot.py, config.py, database.py, helpers.py, smallcaps.py, stream.py, webl
 - Premium-only streaming (web player 0.5x-3x, MX Player / PLAYit / VLC buttons)
 - Sponsor button, welcome photo + buttons, Settings button for admin/owner
 - Log channel: #NewUser (once per new user) and #BotRestarted, /setlog, /restart (owner)
-- Permanent website links (/f/<code>), toggle in /settings -> Website, /revoke
+- Website: home page + permanent links (/f/<code>) with 5->0 countdown, toggle in /settings -> Website, /revoke
 - All text in English + small caps, command menu set automatically
 
 ## Render env vars

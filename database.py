@@ -30,6 +30,8 @@ DEFAULTS = {
     "permalink_bot": "",  # redirect to this bot username; empty = this bot
     "link_expire": 0,  # seconds, 0 = never expires
     "site_name": "File Store",
+    "site_tagline": "Fast, secure file sharing on Telegram.",
+    "redirect_timer": 5,  # seconds shown on the website before redirecting (0 = instant)
     "plans_text": "💎 <b>Premium Plans</b>\n\n• 7 Days — ₹XX\n• 1 Month — ₹XX\n• 3 Months — ₹XX\n\nTap the button below to buy.",
     "sponsor_label": "🤝 Sponsor",
     "sponsor_url": "",
