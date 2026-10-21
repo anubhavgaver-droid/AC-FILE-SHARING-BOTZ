@@ -26,6 +26,10 @@ DEFAULTS = {
     "verify_tutorial": "",
     "db_channel": DB_CHANNEL,
     "log_channel": LOG_CHANNEL,
+    "permalink_enabled": False,  # website (permanent) links on/off
+    "permalink_bot": "",  # redirect to this bot username; empty = this bot
+    "link_expire": 0,  # seconds, 0 = never expires
+    "site_name": "File Store",
     "plans_text": "💎 <b>Premium Plans</b>\n\n• 7 Days — ₹XX\n• 1 Month — ₹XX\n• 3 Months — ₹XX\n\nTap the button below to buy.",
     "sponsor_label": "🤝 Sponsor",
     "sponsor_url": "",
@@ -53,6 +57,7 @@ class Database:
         self.batches = d.custom_batches
         self.dq = d.delete_queue
         self.premium = d.premium
+        self.links = d.links
         self.cache = dict(DEFAULTS)
 
     async def load(self):

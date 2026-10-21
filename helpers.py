@@ -69,6 +69,7 @@ ADMIN_CMDS = [
     ("stats", "Show bot statistics"),
     ("broadcast", "Broadcast a message to all users"),
     ("cancel", "Cancel the current action"),
+    ("revoke", "Revoke a permanent link"),
     ("setlog", "Set the log channel"),
     ("help", "Admin commands guide"),
 ]
@@ -127,6 +128,21 @@ def b64d(s: str) -> str:
 
 def make_link(client, raw: str) -> str:
     return f"https://t.me/{client.me.username}?start={b64e(raw)}"
+
+
+async def build_link(client, raw: str) -> str:
+    """Website (permanent) link when the feature is on, otherwise the direct bot link."""
+    base = base_url()
+    if db.get("permalink_enabled") and base:
+        code = secrets.token_urlsafe(5)
+        ttl = int(db.get("link_expire") or 0)
+        now = time.time()
+        await db.links.insert_one(
+            {"_id": code, "payload": b64e(raw), "at": now, "exp": now + ttl if ttl else 0,
+             "revoked": False, "hits": 0}
+        )
+        return f"{base}/f/{code}"
+    return make_link(client, raw)
 
 
 # ---------------- misc ----------------

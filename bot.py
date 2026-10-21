@@ -16,6 +16,7 @@ from pyrogram.enums import ParseMode
 from config import API_HASH, API_ID, BOT_TOKEN, PORT
 from database import db
 import stream
+import weblinks
 from helpers import log_event, now_ist, set_menu
 import smallcaps
 
@@ -41,6 +42,7 @@ async def web_server():
 
     w = web.Application()
     stream.setup(w, app)
+    weblinks.setup(w, app)
     w.add_routes([web.get("/", root)])
     runner = web.AppRunner(w)
     await runner.setup()
