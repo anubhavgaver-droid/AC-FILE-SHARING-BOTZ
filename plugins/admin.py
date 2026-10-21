@@ -49,6 +49,10 @@ LABELS = {
     "sponsor_label": "Sponsor Button Text",
     "sponsor_url": "Sponsor Channel Link",
     "log_channel": "Log Channel ID",
+    "permalink_enabled": "Permanent Links (Website)",
+    "permalink_bot": "Redirect Bot Username",
+    "link_expire": "Link Expiry",
+    "site_name": "Website Name",
     "stream_enabled": "Streaming (Premium)",
     "stream_expire": "Stream Link Valid",
     "stream_base_url": "Server Public URL",
@@ -68,6 +72,7 @@ PAGES = {
     "fsub": ("📢 Force-Sub", ["fsub_text"]),
     "sponsor": ("🤝 Sponsor", ["sponsor_label", "sponsor_url"]),
     "logs": ("📝 Log Channel", ["log_channel"]),
+    "website": ("🌐 Website", ["permalink_enabled", "permalink_bot", "link_expire", "site_name"]),
     "stream": ("🎬 Streaming", ["stream_enabled", "stream_expire", "stream_base_url"]),
     "premium": (
         "💎 Premium",
@@ -75,10 +80,10 @@ PAGES = {
          "premium_no_autodelete"],
     ),
 }
-BOOL = {"stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
-NUM = {"stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
+BOOL = {"permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
+NUM = {"link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
 RAW = {"welcome_photo", "welcome_buttons", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
-       "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url"}
+       "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url", "permalink_bot", "site_name"}
 
 
 def show(key):
@@ -87,6 +92,8 @@ def show(key):
         return "✅" if v else "❌"
     if key == "verify_mode":
         return {0: "Off", 1: "1 step", 2: "2 steps"}[int(v)]
+    if key == "link_expire":
+        return fmt_time(v) if v else "Never"
     if key in NUM:
         return fmt_time(v) if v else "Off"
     return "✔️" if v else "—"
@@ -175,7 +182,7 @@ async def set_value(client, m):
             return await m.reply("🔢 Please send a number (in seconds).")
         val = int(txt)
     elif key in RAW:
-        val = txt
+        val = txt.lstrip("@") if key == "permalink_bot" else txt
     else:
         val = m.text.html
     STATE.pop(m.from_user.id)
@@ -306,6 +313,7 @@ async def help_cmd(client, m):
         "/addadmin /deladmin /admins – manage admins (owner)\n"
         "/testverify 1|2 – test a verification API\n"
         "/setlog – set the log channel (#NewUser, #BotRestarted)\n"
+        "/revoke – revoke a permanent link\n"
         "/restart – restart the bot (owner)\n"
         "/stats /broadcast /cancel"
     )
@@ -435,3 +443,13 @@ async def restart(client, m):
     )
     await asyncio.sleep(1)
     os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+# ---------------- permanent links ----------------
+@Client.on_message(filters.command("revoke") & PM)
+async def revoke(client, m):
+    if len(m.command) < 2:
+        return await m.reply("Use: <code>/revoke code_or_link</code>")
+    code = m.command[1].rstrip("/").split("/")[-1]
+    r = await db.links.update_one({"_id": code}, {"$set": {"revoked": True}})
+    await m.reply("✅ Link revoked." if r.matched_count else "❌ Link not found.")

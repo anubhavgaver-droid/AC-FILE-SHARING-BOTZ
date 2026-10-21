@@ -5,7 +5,7 @@ from pyrogram.types import InlineKeyboardButton as Btn
 from pyrogram.types import InlineKeyboardMarkup as Markup
 
 from database import db
-from helpers import STATE, admin_f, is_bot_admin, make_link, parse_ref
+from helpers import STATE, admin_f, build_link, is_bot_admin, parse_ref
 
 PM = filters.private & admin_f
 
@@ -60,7 +60,7 @@ async def stop_custom(client, q):
     STATE.pop(q.from_user.id)
     key = secrets.token_urlsafe(6)
     await db.batches.insert_one({"_id": key, "chat_id": int(db.get("db_channel")), "ids": st["ids"]})
-    link = make_link(client, f"c_{key}")
+    link = await build_link(client, f"c_{key}")
     await q.message.edit_text(
         f"✅ <b>Custom batch ready</b> ({len(st['ids'])} files)\n\n<code>{link}</code>",
         reply_markup=share_kb(link),
@@ -94,7 +94,7 @@ async def flow(client, m):
         except Exception as e:
             return await m.reply(f"❌ Could not save to the DB channel: <code>{e}</code>")
         if mode == "single":
-            link = make_link(client, f"s_{chan}_{copied.id}")
+            link = await build_link(client, f"s_{chan}_{copied.id}")
             return await m.reply(f"✅ <code>{link}</code>", reply_markup=share_kb(link), quote=True,
                                  disable_web_page_preview=True)
         st["ids"].append(copied.id)
@@ -127,7 +127,7 @@ async def flow(client, m):
             return await m.reply("❌ The last message must come from the same channel as the first.")
         STATE.pop(uid)
         first, last = sorted((st["first"], msg_id))
-        link = make_link(client, f"b_{chat_id}_{first}_{last}")
+        link = await build_link(client, f"b_{chat_id}_{first}_{last}")
         await m.reply(
             f"✅ <b>Batch ready</b> ({last - first + 1} messages)\n\n<code>{link}</code>",
             reply_markup=share_kb(link),
