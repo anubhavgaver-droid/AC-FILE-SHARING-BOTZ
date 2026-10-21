@@ -53,6 +53,8 @@ LABELS = {
     "permalink_bot": "Redirect Bot Username",
     "link_expire": "Link Expiry",
     "site_name": "Website Name",
+    "site_tagline": "Website Tagline",
+    "redirect_timer": "Redirect Timer",
     "stream_enabled": "Streaming (Premium)",
     "stream_expire": "Stream Link Valid",
     "stream_base_url": "Server Public URL",
@@ -72,7 +74,7 @@ PAGES = {
     "fsub": ("📢 Force-Sub", ["fsub_text"]),
     "sponsor": ("🤝 Sponsor", ["sponsor_label", "sponsor_url"]),
     "logs": ("📝 Log Channel", ["log_channel"]),
-    "website": ("🌐 Website", ["permalink_enabled", "permalink_bot", "link_expire", "site_name"]),
+    "website": ("🌐 Website", ["permalink_enabled", "permalink_bot", "link_expire", "redirect_timer", "site_name", "site_tagline"]),
     "stream": ("🎬 Streaming", ["stream_enabled", "stream_expire", "stream_base_url"]),
     "premium": (
         "💎 Premium",
@@ -81,9 +83,9 @@ PAGES = {
     ),
 }
 BOOL = {"permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
-NUM = {"link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
+NUM = {"redirect_timer", "link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
 RAW = {"welcome_photo", "welcome_buttons", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
-       "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url", "permalink_bot", "site_name"}
+       "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url", "permalink_bot", "site_name", "site_tagline"}
 
 
 def show(key):
@@ -94,6 +96,8 @@ def show(key):
         return {0: "Off", 1: "1 step", 2: "2 steps"}[int(v)]
     if key == "link_expire":
         return fmt_time(v) if v else "Never"
+    if key == "redirect_timer":
+        return f"{int(v)}s" if v else "Instant"
     if key in NUM:
         return fmt_time(v) if v else "Off"
     return "✔️" if v else "—"
