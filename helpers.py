@@ -367,19 +367,29 @@ async def shorten(api_url, api_key, url):
 async def send_verify(client, m, stage, payload):
     uid = m.from_user.id
     token = secrets.token_urlsafe(8)
-    await db.tokens.insert_one({"_id": token, "uid": uid, "stage": stage, "payload": payload, "at": time.time()})
-    url = f"https://t.me/{client.me.username}?start=verify_{token}"
-    short, err = await shorten(db.get(f"v{stage}_api_url"), db.get(f"v{stage}_api_key"), url)
-    if not short:
-        log.warning("verify %s shortener failed: %s", stage, err)
-        try:
-            await client.send_message(
-                OWNER_ID, f"⚠️ <b>Verification {stage} error</b>\n<code>{html.escape(err)}</code>\n\nTest: /testverify {stage}"
-            )
-        except Exception:
-            pass
-        return await m.reply("⚠️ The verification service is not working right now. Please contact the admin.")
-    rows = [[Btn("✅ Verify Now", url=short)]]
+    base = base_url()
+    # 0 = direct | 1 = our server page -> shortener -> bot | 2 = shortener -> our server page -> bot
+    flow = int(db.get("verify_via_server") or 0) if base else 0
+    await db.tokens.insert_one({
+        "_id": token, "uid": uid, "stage": stage, "payload": payload, "at": time.time(),
+        "via_server": flow in (1, 2), "order": {1: "server_first", 2: "shortener_first"}.get(flow),
+    })
+    if flow == 1:
+        link = f"{base}/verify/{token}"  # the shortener link is created later, on the server page
+    else:
+        url = f"{base}/verify/{token}" if flow == 2 else f"https://t.me/{client.me.username}?start=verify_{token}"
+        link, err = await shorten(db.get(f"v{stage}_api_url"), db.get(f"v{stage}_api_key"), url)
+        if not link:
+            log.warning("verify %s shortener failed: %s", stage, err)
+            try:
+                await client.send_message(
+                    OWNER_ID,
+                    f"⚠️ <b>Verification {stage} error</b>\n<code>{html.escape(err)}</code>\n\nTest: /testverify {stage}",
+                )
+            except Exception:
+                pass
+            return await m.reply("⚠️ The verification service is not working right now. Please contact the admin.")
+    rows = [[Btn("✅ Verify Now", url=link)]]
     if db.get("verify_tutorial"):
         rows.append([Btn("❓ How to Verify", url=db.get("verify_tutorial"))])
     text = fill(

@@ -1,6 +1,8 @@
 """Website part of the bot: home page + permanent links  https://your-domain/f/<code>."""
 import html
 import json
+import math
+import secrets
 import time
 
 from aiohttp import web
@@ -163,6 +165,124 @@ async def go(request, client):
     return web.Response(text=page, content_type="text/html")
 
 
+PAGE_WAIT = 3  # seconds before the button works in "server first" mode
+
+VERIFY_MAIN = """<div class="card">
+<div class="icon">🔐</div>
+<h1>Verify to continue</h1>
+<p>Verification %%STAGE%%/%%MODE%% &mdash; %%INTRO%%</p>
+<button class="btn primary" id="vbtn" type="button" disabled>Please wait…</button>
+<p class="small" id="vmsg"></p>
+<ul class="steps">%%LIST%%</ul>
+</div>"""
+
+FIRST = (
+    "tap the button to open the verification link, complete it, and you will return to Telegram.",
+    "<li><span>1</span>Tap <b>Verify &amp; Continue</b> on this page.</li>"
+    "<li><span>2</span>Complete the short verification link.</li>"
+    "<li><span>3</span>You return to Telegram &mdash; tap <b>START</b> and your files are delivered.</li>",
+)
+AFTER = (
+    "confirm below and you will be sent back to Telegram.",
+    "<li><span>1</span>Tap <b>Verify &amp; Continue</b> on this page.</li>"
+    "<li><span>2</span>Telegram opens with the bot.</li>"
+    "<li><span>3</span>Tap <b>START</b> to finish &mdash; your files are delivered.</li>",
+)
+
+VERIFY_JS = """<script>
+(function(){
+var TOKEN=%%TOKENJS%%,left=%%WAIT%%,busy=false,t=null;
+var btn=document.getElementById('vbtn'),msg=document.getElementById('vmsg');
+function label(){
+  if(left>0){btn.disabled=true;btn.textContent='Please wait '+left+'s…';}
+  else{btn.disabled=false;btn.textContent='Verify & Continue';}
+}
+function run(){
+  clearInterval(t);label();
+  t=setInterval(function(){if(left>0){left--;label();}if(left<=0){clearInterval(t);}},1000);
+}
+btn.onclick=function(){
+  if(busy||left>0)return;
+  busy=true;btn.disabled=true;btn.textContent='Verifying…';
+  fetch('/verify/'+encodeURIComponent(TOKEN)+'/confirm',{method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){
+        btn.textContent='Verified ✓ Redirecting…';
+        msg.innerHTML='Not redirecting? <a href="'+d.url+'">Tap here</a>';
+        window.location.href=d.url;
+      }else{
+        busy=false;left=d.wait||0;msg.textContent=d.error||'Verification failed.';run();
+      }
+    })
+    .catch(function(){busy=false;msg.textContent='Network error. Please try again.';run();});
+};
+run();
+})();
+</script>"""
+
+
+async def _verify_token(request):
+    """Returns (token_doc or None, token). Valid only for server-verify tokens younger than 1 hour."""
+    tok = request.match_info["token"]
+    t = await db.tokens.find_one({"_id": tok})
+    if not t or not t.get("via_server") or time.time() - t["at"] > 3600:
+        return None, tok
+    return t, tok
+
+
+def _wait_left(t):
+    need = PAGE_WAIT if t.get("order") == "server_first" else int(db.get("verify_min_time") or 0)
+    return max(0, math.ceil(need - (time.time() - t["at"])))
+
+
+async def verify_page(request, client):
+    t, tok = await _verify_token(request)
+    if not t:
+        return _error(client, "⌛", "Verification link invalid",
+                      "This verification link is invalid or has expired. Please open your file link again.", 410)
+    intro, items = FIRST if t.get("order") == "server_first" else AFTER
+    main = (VERIFY_MAIN.replace("%%STAGE%%", str(t.get("stage", 1)))
+            .replace("%%MODE%%", str(int(db.get("verify_mode") or 1)))
+            .replace("%%INTRO%%", intro).replace("%%LIST%%", items))
+    script = VERIFY_JS.replace("%%TOKENJS%%", json.dumps(tok).replace("</", "<\\/")).replace(
+        "%%WAIT%%", str(_wait_left(t)))
+    page = _render(client, "Verify to continue", main, script=script)
+    return web.Response(text=page, content_type="text/html")
+
+
+async def verify_confirm(request, client):
+    t, tok = await _verify_token(request)
+    if not t:
+        return web.json_response({"ok": False, "error": "This verification link has expired."}, status=410)
+    wait = _wait_left(t)
+    if wait > 0:  # server-side check, the browser timer alone is not trusted
+        return web.json_response(
+            {"ok": False, "wait": wait, "error": f"Please wait {wait} more second(s)."}, status=429)
+
+    if t.get("order") == "server_first":
+        if t.get("short"):  # page reloaded / button tapped twice
+            return web.json_response({"ok": True, "url": t["short"]})
+        from helpers import log_event, shorten  # imported here to keep this module light
+
+        stage = t.get("stage", 1)
+        secret = secrets.token_urlsafe(8)  # only reachable through the shortener destination
+        dest = f"https://t.me/{_username(client)}?start=verify_{secret}"
+        short, err = await shorten(db.get(f"v{stage}_api_url"), db.get(f"v{stage}_api_key"), dest)
+        if not short:
+            await log_event(client, f"⚠️ <b>Verification {stage} shortener error</b>\n<code>{html.escape(err)}</code>")
+            return web.json_response(
+                {"ok": False, "error": "The verification service is unavailable. Please try again."}, status=502)
+        await db.tokens.update_one(
+            {"_id": tok},
+            {"$set": {"confirmed": True, "confirmed_at": time.time(), "secret": secret, "short": short}},
+        )
+        return web.json_response({"ok": True, "url": short})
+
+    await db.tokens.update_one({"_id": tok}, {"$set": {"confirmed": True, "confirmed_at": time.time()}})
+    return web.json_response({"ok": True, "url": f"https://t.me/{_username(client)}?start=verify_{tok}"})
+
+
 def setup(web_app, client):
     async def _go(request):
         return await go(request, client)
@@ -170,4 +290,15 @@ def setup(web_app, client):
     async def _home(request):
         return await home(request, client)
 
-    web_app.add_routes([web.get("/", _home), web.get("/f/{code}", _go)])
+    async def _vpage(request):
+        return await verify_page(request, client)
+
+    async def _vconfirm(request):
+        return await verify_confirm(request, client)
+
+    web_app.add_routes([
+        web.get("/", _home),
+        web.get("/f/{code}", _go),
+        web.get("/verify/{token}", _vpage),
+        web.post("/verify/{token}/confirm", _vconfirm),
+    ])

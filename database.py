@@ -22,6 +22,7 @@ DEFAULTS = {
     "v2_api_key": "",
     "verify_expire": 43200,  # seconds (access after the last step)
     "verify_gap": 3600,  # seconds: gap between the 1st and 2nd verification
+    "verify_via_server": 0,  # 0 off | 1 server page -> shortener -> bot | 2 shortener -> server page -> bot
     "verify_min_time": 15,  # bypass protection (seconds)
     "verify_tutorial": "",
     "db_channel": DB_CHANNEL,

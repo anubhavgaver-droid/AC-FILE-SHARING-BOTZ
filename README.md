@@ -12,6 +12,7 @@ Files: bot.py, config.py, database.py, helpers.py, smallcaps.py, stream.py, webl
 - Sponsor button, welcome photo + buttons, Settings button for admin/owner
 - Log channel: #NewUser (once per new user) and #BotRestarted, /setlog, /restart (owner)
 - Website: home page + permanent links (/f/<code>) with 5->0 countdown, toggle in /settings -> Website, /revoke
+- Verify Flow (settings): Direct | Server first (our page -> shortener -> bot) | Shortener first (shortener -> our page -> bot)
 - All text in English + small caps, command menu set automatically
 
 ## Render env vars
