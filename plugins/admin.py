@@ -31,6 +31,7 @@ LABELS = {
     "welcome_photo": "Welcome Photo",
     "welcome_buttons": "Welcome Buttons",
     "verify_mode": "Verify Mode",
+    "verify_via_server": "Verify Flow",
     "v1_api_url": "Verify-1 API URL",
     "v1_api_key": "Verify-1 API Key",
     "v2_api_url": "Verify-2 API URL",
@@ -67,7 +68,7 @@ PAGES = {
     "welcome": ("🖼 Welcome", ["welcome_text", "welcome_photo", "welcome_buttons"]),
     "verify": (
         "🔐 Verification",
-        ["verify_mode", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
+        ["verify_mode", "verify_via_server", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
          "verify_expire", "verify_gap", "verify_min_time", "verify_tutorial", "verify_text"],
     ),
     "files": ("🗑 Files", ["protect_content", "auto_delete", "auto_delete_text", "wait_text"]),
@@ -94,6 +95,8 @@ def show(key):
         return "✅" if v else "❌"
     if key == "verify_mode":
         return {0: "Off", 1: "1 step", 2: "2 steps"}[int(v)]
+    if key == "verify_via_server":
+        return {0: "Direct", 1: "Server first", 2: "Shortener first"}[int(v or 0)]
     if key == "link_expire":
         return fmt_time(v) if v else "Never"
     if key == "redirect_timer":
@@ -142,8 +145,8 @@ async def settings_cb(client, q):
     key = d[2:]
     if key in BOOL:
         await db.set(key, not db.get(key))
-    elif key == "verify_mode":
-        await db.set(key, (int(db.get(key)) + 1) % 3)
+    elif key in ("verify_mode", "verify_via_server"):
+        await db.set(key, (int(db.get(key) or 0) + 1) % 3)
     else:
         cur = str(db.get(key))
         if "key" in key and cur:

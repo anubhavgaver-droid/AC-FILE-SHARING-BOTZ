@@ -48,11 +48,24 @@ async def welcome(client, m):
 async def handle_verify(client, m, token):
     uid = m.from_user.id
     t = await db.tokens.find_one({"_id": token})
+    by_secret = False
+    if not t:  # "server first" flow: the bot receives the secret created on the website
+        t = await db.tokens.find_one({"secret": token})
+        by_secret = bool(t)
     if not t or t["uid"] != uid or time.time() - t["at"] > 3600:
         return await m.reply("❌ This verification link is invalid or has expired. Please open the file link again.")
-    if time.time() - t["at"] < int(db.get("verify_min_time") or 0):
+    server_first = t.get("order") == "server_first"
+    if server_first and not by_secret:
+        return await m.reply("❌ Please start from the verification page on the website. Open the verification link again.")
+    if t.get("via_server") and not t.get("confirmed"):
+        return await m.reply(
+            "❌ Please complete the verification on the website first. Open the verification link again."
+        )
+    # server first: the time spent on the shortener counts (from leaving our page)
+    since = time.time() - (t.get("confirmed_at", t["at"]) if server_first else t["at"])
+    if since < int(db.get("verify_min_time") or 0):
         return await m.reply("🚫 Bypass detected. Please complete the verification link properly.")
-    await db.tokens.delete_one({"_id": token})
+    await db.tokens.delete_one({"_id": t["_id"]})
     await db.verified.update_one(
         {"_id": uid}, {"$set": {"passed": t["stage"], "at": time.time()}}, upsert=True
     )
