@@ -1,4 +1,4 @@
-pyrofork
+kurigram==2.2.25
 tgcrypto
 motor
 dnspython
