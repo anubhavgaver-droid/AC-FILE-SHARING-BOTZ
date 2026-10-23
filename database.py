@@ -53,6 +53,7 @@ DEFAULTS = {
     "plans_list": "7 Days | 7d | ₹49\n1 Month | 1m | ₹149\n3 Months | 3m | ₹399",  # Label | duration | price
     "pay_text": "💳 <b>Payment details</b>\n\nPay the exact amount, then send the payment screenshot here.",
     "pay_photo": "",  # QR code image (photo URL or file_id)
+    "upi_id": "",  # shown in the payment message with a Copy button
 }
 
 
