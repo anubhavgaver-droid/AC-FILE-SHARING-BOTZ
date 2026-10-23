@@ -24,6 +24,8 @@ DEFAULTS = {
     "verify_gap": 3600,  # seconds: gap between the 1st and 2nd verification
     "verify_via_server": 0,  # 0 off | 1 server page -> shortener -> bot | 2 shortener -> server page -> bot
     "verify_min_time": 15,  # bypass protection (seconds)
+    "shortener_alias": True,  # ask the shortener for a long random alias
+    "alias_length": 15,  # characters after the short link domain (minimum 15, maximum 30)
     "verify_tutorial": "",
     "db_channel": DB_CHANNEL,
     "log_channel": LOG_CHANNEL,

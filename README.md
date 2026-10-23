@@ -13,6 +13,7 @@ Files: bot.py, config.py, database.py, helpers.py, smallcaps.py, stream.py, webl
 - Log channel: #NewUser (once per new user) and #BotRestarted, /setlog, /restart (owner)
 - Website: home page + permanent links (/f/<code>) with 5->0 countdown, toggle in /settings -> Website, /revoke
 - Verify Flow (settings): Direct | Server first (our page -> shortener -> bot) | Shortener first (shortener -> our page -> bot)
+- Shortener alias: the code after the short link's domain is a random lowercase+digit string of at least 15 characters (/settings -> Verification)
 - All text in English + small caps, command menu set automatically
 
 ## Render env vars

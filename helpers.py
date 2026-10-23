@@ -337,14 +337,14 @@ async def next_stage(uid) -> int:
     return stage
 
 
-async def shorten(api_url, api_key, url):
+async def _shorten_once(api_url, api_key, url, alias=None):
     """Returns (short_url or None, debug_text)."""
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"}
     try:
         async with aiohttp.ClientSession(headers=headers) as s:
             async with s.get(
                 api_url.strip(),
-                params={"api": api_key.strip(), "url": url},
+                params={"api": api_key.strip(), "url": url, **({"alias": alias} if alias else {})},
                 timeout=aiohttp.ClientTimeout(total=20),
             ) as r:
                 status = r.status
@@ -362,6 +362,37 @@ async def shorten(api_url, api_key, url):
     if txt.startswith("http") and "\n" not in txt:
         return txt, txt
     return None, f"HTTP {status}: {txt[:300]}"
+
+
+_ALIAS_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789"  # lowercase + digits, like vplink.in/flm6vo1qv6
+
+
+def alias_length() -> int:
+    try:
+        n = int(db.get("alias_length") or 15)
+    except (TypeError, ValueError):
+        n = 15
+    return max(15, min(30, n))  # never shorter than 15 characters
+
+
+def gen_alias() -> str:
+    """Random alias of at least 15 characters (lowercase letters + digits)."""
+    return "".join(secrets.choice(_ALIAS_CHARS) for _ in range(alias_length()))
+
+
+async def shorten(api_url, api_key, url):
+    """Shortens `url`. The short link gets a long random alias (15+ characters) so the code after the
+    shortener's domain is hidden by the browser's "..." in the address bar. If the shortener rejects the
+    alias it is retried once with a new one and then without. Returns (short_url or None, debug_text)."""
+    if db.get("shortener_alias"):
+        for _ in range(2):
+            short, info = await _shorten_once(api_url, api_key, url, gen_alias())
+            if short:
+                return short, info
+            if info.startswith("Request error"):  # network problem, retrying will not help
+                return None, info
+        log.info("shortener rejected the custom alias, retrying without it: %s", info)
+    return await _shorten_once(api_url, api_key, url)
 
 
 async def send_verify(client, m, stage, payload):
