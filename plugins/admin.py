@@ -50,6 +50,7 @@ LABELS = {
     "fsub_text": "Force-Sub Text",
     "plans_text": "Plans Text",
     "plans_list": "Plans List (buttons)",
+    "upi_id": "UPI ID",
     "pay_text": "Payment Instructions",
     "pay_photo": "Payment QR Photo",
     "free_limit": "Free Links Before Verify",
@@ -92,14 +93,14 @@ PAGES = {
     "mirror": ("🪞 Mirror Channel", ["mirror_channel"]),
     "premium": (
         "💎 Premium",
-        ["plans_text", "plans_list", "pay_text", "pay_photo", "premium_contact", "premium_skip_verify", "premium_skip_fsub",
+        ["plans_text", "plans_list", "upi_id", "pay_text", "pay_photo", "premium_contact", "premium_skip_verify", "premium_skip_fsub",
          "premium_no_autodelete"],
     ),
 }
 BOOL = {"free_notice", "maintenance", "shortener_alias", "permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
 NUM = {"free_limit", "alias_length", "redirect_timer", "link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
 RAW = {"welcome_photo", "welcome_buttons", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
-       "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url", "permalink_bot", "site_name", "site_tagline", "plans_list", "pay_photo"}
+       "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url", "permalink_bot", "site_name", "site_tagline", "plans_list", "pay_photo", "upi_id"}
 
 
 def show(key):

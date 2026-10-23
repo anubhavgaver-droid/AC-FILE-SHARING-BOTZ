@@ -115,6 +115,29 @@ def plans_markup():
     return Markup(rows) if rows else None
 
 
+def upi_button():
+    """'Copy UPI ID' button. Uses Telegram's copy-to-clipboard button when the installed library supports it,
+    otherwise a normal button that sends the ID in a tap-to-copy message."""
+    upi = (db.get("upi_id") or "").strip()
+    if not upi:
+        return None
+    try:
+        from pyrogram.types import CopyTextButton
+
+        return Btn("📋 Copy UPI ID", copy_text=CopyTextButton(text=upi))
+    except Exception:
+        return Btn("📋 Copy UPI ID", callback_data="upi_copy")
+
+
+@Client.on_callback_query(filters.regex("^upi_copy$"))
+async def upi_copy(client, q):
+    upi = (db.get("upi_id") or "").strip()
+    if not upi:
+        return await q.answer("The UPI ID is not set.", show_alert=True)
+    await q.answer("Tap the UPI ID in the new message to copy it.")
+    await client.send_message(q.message.chat.id, f"<code>{html.escape(upi)}</code>")
+
+
 @Client.on_callback_query(filters.regex(r"^buy_\d+$"))
 async def buy_cb(client, q):
     plans = parse_plans()
@@ -126,11 +149,18 @@ async def buy_cb(client, q):
         return await q.answer("You already have a payment waiting for approval.", show_alert=True)
     label, _, price = plans[i]
     STATE[uid] = {"mode": "pay", "plan": i}
+    upi = (db.get("upi_id") or "").strip()
+    upi_line = f"📲 UPI ID: <code>{html.escape(upi)}</code>\n" if upi else ""
     text = (
-        f"{db.get('pay_text')}\n\n📦 Plan: <b>{html.escape(label)}</b>\n💰 Amount: <b>{html.escape(price)}</b>\n\n"
+        f"{db.get('pay_text')}\n\n📦 Plan: <b>{html.escape(label)}</b>\n💰 Amount: <b>{html.escape(price)}</b>\n"
+        f"{upi_line}\n"
         "📸 Now send the payment screenshot here.\n/cancel to stop."
     )
-    kb = Markup([[Btn("❌ Cancel", callback_data="pay_cancel")]])
+    rows = [[Btn("❌ Cancel", callback_data="pay_cancel")]]
+    ub = upi_button()
+    if ub:  # the Copy UPI button sits right under Cancel
+        rows.append([ub])
+    kb = Markup(rows)
     await q.answer()
     photo = db.get("pay_photo")
     if photo:
