@@ -71,6 +71,8 @@ async def handle_verify(client, m, token):
     )
     mode = int(db.get("verify_mode") or 0)
     gap = int(db.get("verify_gap") or 0)
+    if t["stage"] >= mode:
+        await db.reset_free(uid)  # fully verified: free links start again once this access expires
     if t["stage"] < mode and gap <= 0 and db.get(f"v{t['stage'] + 1}_api_url"):
         return await send_verify(client, m, t["stage"] + 1, t["payload"])
     if t["stage"] < mode:
@@ -103,6 +105,7 @@ async def start(client, m):
     if payload.startswith("verify_"):
         return await handle_verify(client, m, payload[7:])
 
+    free_left = None
     if not await db.is_admin(uid):
         prem = await db.is_premium(uid)
         if not (prem and db.get("premium_skip_fsub")):
@@ -115,8 +118,16 @@ async def start(client, m):
         if not (prem and db.get("premium_skip_verify")):
             stage = await next_stage(uid)
             if stage:
-                return await send_verify(client, m, stage, payload)
+                free = int(db.get("free_limit") or 0)
+                used = await db.free_used(uid) if (stage == 1 and free > 0) else 0
+                if stage == 1 and used < free:  # still inside the free links
+                    await db.bump_free(uid)
+                    free_left = free - used - 1
+                else:
+                    return await send_verify(client, m, stage, payload)
     await deliver(client, m, payload)
+    if free_left is not None and db.get("free_notice"):
+        await m.reply(f"🎁 Free links left before verification: <b>{free_left}</b>")
 
 
 @Client.on_callback_query(filters.regex("^dl_cancel$"))

@@ -1,3 +1,4 @@
+import html
 import secrets
 
 from pyrogram import Client, filters
@@ -5,7 +6,7 @@ from pyrogram.types import InlineKeyboardButton as Btn
 from pyrogram.types import InlineKeyboardMarkup as Markup
 
 from database import db
-from helpers import STATE, admin_f, build_link, is_bot_admin, parse_ref
+from helpers import STATE, admin_f, build_link, is_bot_admin, mirror_save, parse_ref
 
 PM = filters.private & admin_f
 
@@ -62,7 +63,8 @@ async def stop_custom(client, q):
     await db.batches.insert_one({"_id": key, "chat_id": int(db.get("db_channel")), "ids": st["ids"]})
     link = await build_link(client, f"c_{key}")
     await q.message.edit_text(
-        f"✅ <b>Custom batch ready</b> ({len(st['ids'])} files)\n\n<code>{link}</code>",
+        f"✅ <b>Custom batch ready</b> ({len(st['ids'])} files)\n\n<code>{link}</code>"
+        + (f"\n⚠️ Mirror copy failed for {st['mfail']} item(s)." if st.get("mfail") else ""),
         reply_markup=share_kb(link),
         disable_web_page_preview=True,
     )
@@ -93,18 +95,23 @@ async def flow(client, m):
             copied = await m.copy(chan)
         except Exception as e:
             return await m.reply(f"❌ Could not save to the DB channel: <code>{e}</code>")
+        merr = await mirror_save(client, m, chan, copied.id)
         if mode == "single":
             link = await build_link(client, f"s_{chan}_{copied.id}")
-            return await m.reply(f"✅ <code>{link}</code>", reply_markup=share_kb(link), quote=True,
+            warn = f"\n⚠️ Mirror copy failed: <code>{html.escape(merr)[:150]}</code>" if merr else ""
+            return await m.reply(f"✅ <code>{link}</code>{warn}", reply_markup=share_kb(link), quote=True,
                                  disable_web_page_preview=True)
         st["ids"].append(copied.id)
+        if merr:
+            st["mfail"] = st.get("mfail", 0) + 1
         if st.get("status"):
             try:
                 await st["status"].delete()
             except Exception:
                 pass
         st["status"] = await m.reply(
-            f"✅ Added: <b>{len(st['ids'])}</b> item(s)\nSend more or tap Stop.",
+            f"✅ Added: <b>{len(st['ids'])}</b> item(s)\nSend more or tap Stop."
+            + (f"\n⚠️ Mirror copy failed for {st['mfail']} item(s)." if st.get("mfail") else ""),
             reply_markup=STOP_KB,
             quote=True,
         )

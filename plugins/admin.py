@@ -49,6 +49,14 @@ LABELS = {
     "wait_text": "Please-Wait Text",
     "fsub_text": "Force-Sub Text",
     "plans_text": "Plans Text",
+    "plans_list": "Plans List (buttons)",
+    "pay_text": "Payment Instructions",
+    "pay_photo": "Payment QR Photo",
+    "free_limit": "Free Links Before Verify",
+    "free_notice": "Show Free-Links-Left Notice",
+    "maintenance": "Maintenance Mode",
+    "maintenance_text": "Maintenance Message",
+    "mirror_channel": "Mirror Channel ID",
     "sponsor_label": "Sponsor Button Text",
     "sponsor_url": "Sponsor Channel Link",
     "log_channel": "Log Channel ID",
@@ -79,16 +87,19 @@ PAGES = {
     "logs": ("📝 Log Channel", ["log_channel"]),
     "website": ("🌐 Website", ["permalink_enabled", "permalink_bot", "link_expire", "redirect_timer", "site_name", "site_tagline"]),
     "stream": ("🎬 Streaming", ["stream_enabled", "stream_expire", "stream_base_url"]),
+    "free": ("🎁 Free Limit", ["free_limit", "free_notice"]),
+    "maint": ("🛠 Maintenance", ["maintenance", "maintenance_text"]),
+    "mirror": ("🪞 Mirror Channel", ["mirror_channel"]),
     "premium": (
         "💎 Premium",
-        ["plans_text", "premium_contact", "premium_skip_verify", "premium_skip_fsub",
+        ["plans_text", "plans_list", "pay_text", "pay_photo", "premium_contact", "premium_skip_verify", "premium_skip_fsub",
          "premium_no_autodelete"],
     ),
 }
-BOOL = {"shortener_alias", "permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
-NUM = {"alias_length", "redirect_timer", "link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
+BOOL = {"free_notice", "maintenance", "shortener_alias", "permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
+NUM = {"free_limit", "alias_length", "redirect_timer", "link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
 RAW = {"welcome_photo", "welcome_buttons", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
-       "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url", "permalink_bot", "site_name", "site_tagline"}
+       "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url", "permalink_bot", "site_name", "site_tagline", "plans_list", "pay_photo"}
 
 
 def show(key):
@@ -103,6 +114,8 @@ def show(key):
         return fmt_time(v) if v else "Never"
     if key == "redirect_timer":
         return f"{int(v)}s" if v else "Instant"
+    if key == "free_limit":
+        return f"{int(v)} link(s)" if v else "Off (verify at once)"
     if key == "alias_length":
         return f"{max(15, min(30, int(v or 15)))} chars"
     if key in NUM:
@@ -144,7 +157,13 @@ async def settings_cb(client, q):
         return await edit(q.message, "⚙️ <b>Bot Settings</b>", main_kb())
     if d.startswith("pg_"):
         page = d[3:]
-        hint = "\n\nTap a 🗑 button to remove that channel" if page == "fsub" else ""
+        hint = {
+            "fsub": "\n\nTap a 🗑 button to remove that channel",
+            "free": "\n\nHow many links a new user can open before verification starts. 0 = verify at once.",
+            "mirror": "\n\nEvery file saved with /genlink and /custom_batch is also copied here. If the main DB channel "
+                      "is lost, links keep working from this channel. Use /setmirror to set it.",
+            "maint": "\n\nWhen ON, normal users only see the maintenance message. Admins keep working.",
+        }.get(page, "")
         return await edit(q.message, f"{PAGES[page][0]} settings{hint}", await page_kb(page))
     key = d[2:]
     if key in BOOL:
@@ -180,17 +199,17 @@ async def set_value(client, m):
         return
     if txt.lower() == "/default":
         val = DEFAULTS[key]
-    elif key == "welcome_photo" and m.photo:
+    elif key in ("welcome_photo", "pay_photo") and m.photo:
         val = m.photo.file_id
     elif not m.text:
         return await m.reply("📝 Please send text.")
-    elif key == "log_channel":
+    elif key in ("log_channel", "mirror_channel"):
         if not txt.lstrip("-").isdigit() or not await is_bot_admin(client, int(txt)):
             return await m.reply("❌ Send a valid channel ID (-100...) and make the bot an admin in that channel.")
         val = int(txt)
     elif key in NUM:
         if not txt.isdigit():
-            return await m.reply("🔢 Please send a number (in seconds).")
+            return await m.reply("🔢 Please send a number (seconds, or a count for the free limit).")
         val = int(txt)
     elif key in RAW:
         val = txt.lstrip("@") if key == "permalink_bot" else txt
@@ -325,6 +344,7 @@ async def help_cmd(client, m):
         "/testverify 1|2 – test a verification API\n"
         "/setlog – set the log channel (#NewUser, #BotRestarted)\n"
         "/revoke – revoke a permanent link\n"
+        "/setmirror /swapdb – mirror (backup) channel\n"
         "/restart – restart the bot (owner)\n"
         "/stats /broadcast /cancel"
     )
@@ -471,3 +491,39 @@ async def revoke(client, m):
     code = m.command[1].rstrip("/").split("/")[-1]
     r = await db.links.update_one({"_id": code}, {"$set": {"revoked": True}})
     await m.reply("✅ Link revoked." if r.matched_count else "❌ Link not found.")
+
+
+# ---------------- mirror channel ----------------
+@Client.on_message(filters.command("setmirror") & PM)
+async def setmirror(client, m):
+    if len(m.command) < 2:
+        return await m.reply("Use: <code>/setmirror -100xxxxxxxxxx</code> (to disable, use <code>/setmirror off</code>)")
+    if m.command[1].lower() == "off":
+        await db.set("mirror_channel", 0)
+        return await m.reply("✅ Mirror channel disabled.")
+    if not m.command[1].lstrip("-").isdigit():
+        return await m.reply("❌ Please send a valid channel ID.")
+    cid = int(m.command[1])
+    if cid == int(db.get("db_channel") or 0):
+        return await m.reply("❌ The mirror must be a different channel from the DB channel.")
+    if not await is_bot_admin(client, cid):
+        return await m.reply("❌ The bot is not an admin in that channel.")
+    await db.set("mirror_channel", cid)
+    await m.reply(
+        f"✅ Mirror channel set: <code>{cid}</code>\n"
+        "Files you save from now on with /genlink and /custom_batch are copied there too. "
+        "Files saved earlier are not mirrored."
+    )
+
+
+@Client.on_message(filters.command("swapdb") & PM)
+async def swapdb(client, m):
+    mch = int(db.get("mirror_channel") or 0)
+    if not mch:
+        return await m.reply("❌ No mirror channel is set.")
+    await db.set("db_channel", mch)
+    await db.set("mirror_channel", 0)
+    await m.reply(
+        "✅ The mirror channel is now the main DB channel.\n"
+        "Old links keep working through their mirror copies. Set a new mirror with /setmirror."
+    )
