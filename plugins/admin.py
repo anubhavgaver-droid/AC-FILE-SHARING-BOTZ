@@ -32,6 +32,8 @@ LABELS = {
     "welcome_buttons": "Welcome Buttons",
     "verify_mode": "Verify Mode",
     "verify_via_server": "Verify Flow",
+    "shortener_alias": "Long Short-Link Alias",
+    "alias_length": "Alias Length (min 15)",
     "v1_api_url": "Verify-1 API URL",
     "v1_api_key": "Verify-1 API Key",
     "v2_api_url": "Verify-2 API URL",
@@ -68,7 +70,7 @@ PAGES = {
     "welcome": ("🖼 Welcome", ["welcome_text", "welcome_photo", "welcome_buttons"]),
     "verify": (
         "🔐 Verification",
-        ["verify_mode", "verify_via_server", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
+        ["verify_mode", "verify_via_server", "shortener_alias", "alias_length", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
          "verify_expire", "verify_gap", "verify_min_time", "verify_tutorial", "verify_text"],
     ),
     "files": ("🗑 Files", ["protect_content", "auto_delete", "auto_delete_text", "wait_text"]),
@@ -83,8 +85,8 @@ PAGES = {
          "premium_no_autodelete"],
     ),
 }
-BOOL = {"permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
-NUM = {"redirect_timer", "link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
+BOOL = {"shortener_alias", "permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
+NUM = {"alias_length", "redirect_timer", "link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
 RAW = {"welcome_photo", "welcome_buttons", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
        "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url", "permalink_bot", "site_name", "site_tagline"}
 
@@ -101,6 +103,8 @@ def show(key):
         return fmt_time(v) if v else "Never"
     if key == "redirect_timer":
         return f"{int(v)}s" if v else "Instant"
+    if key == "alias_length":
+        return f"{max(15, min(30, int(v or 15)))} chars"
     if key in NUM:
         return fmt_time(v) if v else "Off"
     return "✔️" if v else "—"
@@ -340,8 +344,15 @@ async def testverify(client, m):
     short, info = await shorten(api_url, api_key, f"https://t.me/{client.me.username}?start=test")
     note = "" if mode >= int(stage) else f"\n\n⚠️ Verify Mode is currently <b>{mode}</b>. Enable it in settings (1 or 2 steps)."
     if short:
-        await m.reply(f"✅ Verify-{stage} API is working correctly.\n<code>{html.escape(short)}</code>{note}",
-                      disable_web_page_preview=True)
+        alias = short.rstrip("/").split("/")[-1]
+        warn = "" if len(alias) >= 15 else (
+            "\n⚠️ This shortener did not use the custom alias, so its own shorter code is used."
+        )
+        await m.reply(
+            f"✅ Verify-{stage} API is working correctly.\n<code>{html.escape(short)}</code>\n"
+            f"🔤 Alias: <code>{html.escape(alias)}</code> ({len(alias)} chars){warn}{note}",
+            disable_web_page_preview=True,
+        )
     else:
         await m.reply(f"❌ Verify-{stage} fail:\n<code>{html.escape(info)}</code>{note}")
 
