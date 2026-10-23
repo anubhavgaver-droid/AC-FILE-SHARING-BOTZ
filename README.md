@@ -14,6 +14,10 @@ Files: bot.py, config.py, database.py, helpers.py, smallcaps.py, stream.py, webl
 - Website: home page + permanent links (/f/<code>) with 5->0 countdown, toggle in /settings -> Website, /revoke
 - Verify Flow (settings): Direct | Server first (our page -> shortener -> bot) | Shortener first (shortener -> our page -> bot)
 - Shortener alias: the code after the short link's domain is a random lowercase+digit string of at least 15 characters (/settings -> Verification)
+- Free limit: new users can open N links before verification starts (0 = verify at once) - /settings -> Free Limit
+- Premium by screenshot: plan buttons -> payment QR/instructions -> user sends a screenshot -> admin taps Approve/Reject
+- Maintenance mode (/settings): normal users see a notice, admins keep working
+- Mirror channel (/setmirror, /settings -> Mirror): files are copied to a backup channel; if the main DB channel is lost, links (also permanent ones) are served from the mirror; /swapdb promotes the mirror
 - All text in English + small caps, command menu set automatically
 
 ## Render env vars

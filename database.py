@@ -45,6 +45,14 @@ DEFAULTS = {
     "premium_skip_verify": True,
     "premium_skip_fsub": False,
     "premium_no_autodelete": False,
+    "free_limit": 0,  # links a new user may open before verification starts (0 = verify at once)
+    "free_notice": True,  # tell the user how many free links are left
+    "maintenance": False,
+    "maintenance_text": "🛠 <b>The bot is under maintenance.</b>\nPlease try again a little later.",
+    "mirror_channel": 0,  # backup copy of every saved file (see /setmirror)
+    "plans_list": "7 Days | 7d | ₹49\n1 Month | 1m | ₹149\n3 Months | 3m | ₹399",  # Label | duration | price
+    "pay_text": "💳 <b>Payment details</b>\n\nPay the exact amount, then send the payment screenshot here.",
+    "pay_photo": "",  # QR code image (photo URL or file_id)
 }
 
 
@@ -63,6 +71,8 @@ class Database:
         self.dq = d.delete_queue
         self.premium = d.premium
         self.links = d.links
+        self.mirror = d.mirror
+        self.payments = d.payments
         self.cache = dict(DEFAULTS)
 
     async def load(self):
@@ -117,6 +127,29 @@ class Database:
 
     async def remove_premium(self, uid):
         return (await self.premium.delete_one({"_id": uid})).deleted_count
+
+    # ---- free link limit ----
+    async def free_used(self, uid):
+        doc = await self.users.find_one({"_id": uid})
+        return int((doc or {}).get("free_used", 0))
+
+    async def bump_free(self, uid):
+        await self.users.update_one({"_id": uid}, {"$inc": {"free_used": 1}}, upsert=True)
+
+    async def reset_free(self, uid):
+        await self.users.update_one({"_id": uid}, {"$set": {"free_used": 0}})
+
+    # ---- mirror channel ----
+    async def save_mirror(self, chat, mid, mchat, mmid):
+        await self.mirror.update_one(
+            {"_id": f"{chat}_{mid}"}, {"$set": {"mchat": mchat, "mid": mmid}}, upsert=True
+        )
+
+    async def get_mirrors(self, chat, ids):
+        out = {}
+        async for doc in self.mirror.find({"_id": {"$in": [f"{chat}_{i}" for i in ids]}}):
+            out[doc["_id"]] = (doc["mchat"], doc["mid"])
+        return out
 
     # ---- auto delete queue ----
     async def schedule_delete(self, chat_id, ids, delay):

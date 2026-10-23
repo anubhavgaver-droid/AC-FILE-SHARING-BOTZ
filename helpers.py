@@ -71,6 +71,8 @@ ADMIN_CMDS = [
     ("cancel", "Cancel the current action"),
     ("revoke", "Revoke a permanent link"),
     ("setlog", "Set the log channel"),
+    ("setmirror", "Set the mirror (backup) channel"),
+    ("swapdb", "Make the mirror the main DB channel"),
     ("help", "Admin commands guide"),
 ]
 OWNER_CMDS = [
@@ -434,6 +436,70 @@ async def send_verify(client, m, stage, payload):
 
 
 # ---------------- delivery ----------------
+_last_mirror_alert = 0.0
+
+
+async def fetch_msgs(client, chat, ids):
+    """Messages for `ids` in `chat` (None where unavailable). Anything missing from the main channel
+    (deleted, copyright strike, bot removed) is read from the mirror channel instead."""
+    global _last_mirror_alert
+    try:
+        got = await client.get_messages(chat, ids)
+    except Exception as e:
+        log.warning("get_messages(%s) failed: %s", chat, e)
+        got = []
+    if not isinstance(got, list):
+        got = [got]
+    res = []
+    for idx in range(len(ids)):
+        msg = got[idx] if idx < len(got) else None
+        res.append(msg if msg and not msg.empty else None)
+    missing = [i for i, msg in enumerate(res) if msg is None]
+    if not missing:
+        return res
+    maps = await db.get_mirrors(chat, [ids[i] for i in missing])
+    by_chat = {}
+    for i in missing:
+        hit = maps.get(f"{chat}_{ids[i]}")
+        if hit:
+            by_chat.setdefault(hit[0], []).append((i, hit[1]))
+    used = 0
+    for mchat, pairs in by_chat.items():
+        try:
+            mm = await client.get_messages(mchat, [p[1] for p in pairs])
+        except Exception as e:
+            log.warning("mirror get_messages(%s) failed: %s", mchat, e)
+            continue
+        if not isinstance(mm, list):
+            mm = [mm]
+        for (i, _), msg in zip(pairs, mm):
+            if msg and not msg.empty:
+                res[i] = msg
+                used += 1
+    if used and time.time() - _last_mirror_alert > 600:
+        _last_mirror_alert = time.time()
+        await log_event(
+            client,
+            f"⚠️ <b>#MirrorUsed</b>\nThe main channel <code>{chat}</code> could not provide {used} file(s). "
+            "They were delivered from the mirror channel.",
+        )
+    return res
+
+
+async def mirror_save(client, src, chan, db_mid):
+    """Copies a saved message to the mirror channel and remembers where it went. Returns an error text or ''."""
+    mch = int(db.get("mirror_channel") or 0)
+    if not mch:
+        return ""
+    try:
+        mc = await src.copy(mch)
+        await db.save_mirror(chan, db_mid, mch, mc.id)
+        return ""
+    except Exception as e:
+        log.warning("mirror save failed: %s", e)
+        return str(e)
+
+
 async def deliver(client, m, payload):
     uid = m.from_user.id
     try:
@@ -462,9 +528,10 @@ async def deliver(client, m, payload):
     )
     protect = bool(db.get("protect_content"))
     sent = []
+    failed = False
     try:
         for i in range(0, len(ids), 100):
-            msgs = await client.get_messages(chat, ids[i : i + 100])
+            msgs = await fetch_msgs(client, chat, ids[i : i + 100])
             for msg in msgs:
                 if uid in CANCEL:
                     cancelled = True
@@ -490,12 +557,15 @@ async def deliver(client, m, payload):
                 break
     except Exception as e:
         log.error("deliver error: %s", e)
+        failed = True
         await m.reply("❌ Could not fetch the files. Please contact the admin.")
     try:
         await wait.delete()
     except Exception:
         pass
 
+    if not sent and not cancelled and not failed:
+        await m.reply("❌ These files are no longer available.")
     if cancelled:
         CANCEL.discard(uid)
         await m.reply("❌ Delivery cancelled.")

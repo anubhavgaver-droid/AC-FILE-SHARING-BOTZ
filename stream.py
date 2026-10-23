@@ -9,7 +9,7 @@ from urllib.parse import quote
 from aiohttp import web
 
 from database import db
-from helpers import base_url, is_streamable, media_of, parse_token
+from helpers import base_url, fetch_msgs, is_streamable, media_of, parse_token
 
 log = logging.getLogger("stream")
 CHUNK = 1024 * 1024  # Pyrogram stream_media chunk = 1 MiB
@@ -66,7 +66,7 @@ async def _get_msg(client, chat, mid):
     hit = _CACHE.get(key)
     if hit and time.time() - hit[1] < 600:
         return hit[0]
-    msg = await client.get_messages(chat, mid)
+    msg = (await fetch_msgs(client, chat, [mid]))[0]
     _CACHE[key] = (msg, time.time())
     if len(_CACHE) > 300:
         _CACHE.pop(min(_CACHE, key=lambda k: _CACHE[k][1]), None)
