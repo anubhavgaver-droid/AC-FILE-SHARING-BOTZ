@@ -13,3 +13,5 @@ PORT = int(os.environ.get("PORT", "8080"))
 LOG_CHANNEL = int(os.environ.get("LOG_CHANNEL", "0"))  # default, can be changed with /setlog
 # Public URL for streaming (Render provides RENDER_EXTERNAL_URL automatically)
 BASE_URL = (os.environ.get("BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL", "")).rstrip("/")
+
+BOT_VERSION = "v12"  # shown in the About panel

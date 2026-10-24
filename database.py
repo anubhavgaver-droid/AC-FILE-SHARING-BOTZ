@@ -59,6 +59,21 @@ DEFAULTS = {
     "join_enabled": True,  # one-time join links for connected channels
     "join_expire": 600,  # seconds an invite link stays valid
     "join_text": "✅ <b>Your file is ready!</b>\n\nTap <b>Join channel</b> to get in, then tap <b>Open the file</b>.\n⏳ This invite works for one person only and expires in {time}.",
+    "features_text": (
+        "✨ <b>Features</b>\n\n"
+        "📁 Get files through secure links: single files, batches and whole collections\n"
+        "⚡ Fast delivery straight into your chat\n"
+        "🔐 Quick verification gives you access for a while\n"
+        "💎 <b>Premium</b>: no verification, no waiting, online streaming with speed control "
+        "(0.5x to 3x) and external player support (MX Player, VLC and more)\n"
+        "⏱ Auto-delete and protected files when the admin turns them on\n"
+        "📡 One-time join links for private channels\n"
+        "💳 Buy premium inside the bot: send the payment screenshot and the admin approves it\n"
+        "🌐 Permanent website links that keep working"
+    ),
+    "developer_name": "Bot Admin",
+    "developer_link": "",  # @username or https:// link (adds a Developer button)
+    "about_extra": "",  # optional extra line at the bottom of the About panel
     "link_cooldown": 0,  # seconds a user must wait after opening a link before the next one (0 = off)
     "cooldown_text": "⏳ <b>Please wait {time}</b> before opening another link.",
     "premium_skip_cooldown": True,
