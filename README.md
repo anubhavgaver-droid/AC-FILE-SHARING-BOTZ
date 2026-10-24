@@ -17,6 +17,7 @@ Files: bot.py, config.py, database.py, helpers.py, smallcaps.py, stream.py, webl
 - Free limit: new users can open N links before verification starts (0 = verify at once) - /settings -> Free Limit
 - Premium by screenshot: plan buttons -> payment QR/instructions -> user sends a screenshot -> admin taps Approve/Reject
 - UPI ID setting: shown in the payment message with a 📋 Copy UPI ID button under Cancel (/settings -> Premium)
+- Premium expiry reminder (1 day before by default, + a notice when it ended), /status health report, link cooldown (/settings -> Cooldown)
 - Maintenance mode (/settings): normal users see a notice, admins keep working
 - Mirror channel (/setmirror, /settings -> Mirror): files are copied to a backup channel; if the main DB channel is lost, links (also permanent ones) are served from the mirror; /swapdb promotes the mirror
 - All text in English + small caps, command menu set automatically

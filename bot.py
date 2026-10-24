@@ -80,6 +80,19 @@ async def ping_loop():
             pass
 
 
+async def reminder_loop():
+    """Premium expiry reminders, checked every 10 minutes."""
+    from plugins.premium import send_reminders
+
+    await asyncio.sleep(60)
+    while True:
+        try:
+            await send_reminders(app)
+        except Exception as e:
+            log.error("reminder loop: %s", e)
+        await asyncio.sleep(600)
+
+
 async def startup_notice():
     """After a restart: edit the /restart message and post #BotRestarted to the log channel."""
     by = None
@@ -107,6 +120,7 @@ async def main():
     await startup_notice()
     asyncio.create_task(delete_loop())
     asyncio.create_task(ping_loop())
+    asyncio.create_task(reminder_loop())
     await idle()
     await app.stop()
 

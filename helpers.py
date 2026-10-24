@@ -5,6 +5,7 @@ import hmac
 import html
 import json
 import logging
+import math
 import re
 import secrets
 import time
@@ -71,6 +72,7 @@ ADMIN_CMDS = [
     ("cancel", "Cancel the current action"),
     ("revoke", "Revoke a permanent link"),
     ("setlog", "Set the log channel"),
+    ("status", "Show bot health and statistics"),
     ("setmirror", "Set the mirror (backup) channel"),
     ("swapdb", "Make the mirror the main DB channel"),
     ("help", "Admin commands guide"),
@@ -436,6 +438,15 @@ async def send_verify(client, m, stage, payload):
 
 
 # ---------------- delivery ----------------
+async def cooldown_left(uid) -> int:
+    """Seconds the user still has to wait before opening another link (0 = free to go)."""
+    cd = int(db.get("link_cooldown") or 0)
+    if cd <= 0:
+        return 0
+    last = await db.last_open(uid)
+    return max(0, math.ceil(last + cd - time.time()))
+
+
 _last_mirror_alert = 0.0
 
 
@@ -564,6 +575,8 @@ async def deliver(client, m, payload):
     except Exception:
         pass
 
+    if sent:
+        await db.touch_open(uid)  # starts the cooldown
     if not sent and not cancelled and not failed:
         await m.reply("❌ These files are no longer available.")
     if cancelled:

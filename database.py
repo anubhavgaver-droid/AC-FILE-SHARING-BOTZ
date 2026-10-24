@@ -54,6 +54,11 @@ DEFAULTS = {
     "pay_text": "💳 <b>Payment details</b>\n\nPay the exact amount, then send the payment screenshot here.",
     "pay_photo": "",  # QR code image (photo URL or file_id)
     "upi_id": "",  # shown in the payment message with a Copy button
+    "premium_reminder": True,  # remind users before premium ends + tell them when it ended
+    "premium_remind_before": 86400,  # seconds before the end (default 1 day)
+    "link_cooldown": 0,  # seconds a user must wait after opening a link before the next one (0 = off)
+    "cooldown_text": "⏳ <b>Please wait {time}</b> before opening another link.",
+    "premium_skip_cooldown": True,
 }
 
 
@@ -139,6 +144,14 @@ class Database:
 
     async def reset_free(self, uid):
         await self.users.update_one({"_id": uid}, {"$set": {"free_used": 0}})
+
+    # ---- link cooldown ----
+    async def touch_open(self, uid):
+        await self.users.update_one({"_id": uid}, {"$set": {"last_open": time.time()}}, upsert=True)
+
+    async def last_open(self, uid):
+        doc = await self.users.find_one({"_id": uid})
+        return float((doc or {}).get("last_open", 0))
 
     # ---- mirror channel ----
     async def save_mirror(self, chat, mid, mchat, mmid):
