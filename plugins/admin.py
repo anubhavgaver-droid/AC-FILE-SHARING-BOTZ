@@ -2,13 +2,14 @@ import asyncio
 import html
 import os
 import sys
+import time
 
 from pyrogram import Client, filters
 from pyrogram.errors import FloodWait
 from pyrogram.types import InlineKeyboardButton as Btn
 from pyrogram.types import InlineKeyboardMarkup as Markup
 
-from config import OWNER_ID
+from config import DB_NAME, OWNER_ID
 from database import DEFAULTS, db
 from helpers import (
     STATE,
@@ -51,6 +52,11 @@ LABELS = {
     "plans_text": "Plans Text",
     "plans_list": "Plans List (buttons)",
     "upi_id": "UPI ID",
+    "premium_reminder": "Premium Expiry Reminder",
+    "premium_remind_before": "Remind Before Expiry",
+    "link_cooldown": "Link Cooldown",
+    "cooldown_text": "Cooldown Message",
+    "premium_skip_cooldown": "Premium skips Cooldown",
     "pay_text": "Payment Instructions",
     "pay_photo": "Payment QR Photo",
     "free_limit": "Free Links Before Verify",
@@ -89,16 +95,17 @@ PAGES = {
     "website": ("🌐 Website", ["permalink_enabled", "permalink_bot", "link_expire", "redirect_timer", "site_name", "site_tagline"]),
     "stream": ("🎬 Streaming", ["stream_enabled", "stream_expire", "stream_base_url"]),
     "free": ("🎁 Free Limit", ["free_limit", "free_notice"]),
+    "cooldown": ("⏱ Cooldown", ["link_cooldown", "cooldown_text", "premium_skip_cooldown"]),
     "maint": ("🛠 Maintenance", ["maintenance", "maintenance_text"]),
     "mirror": ("🪞 Mirror Channel", ["mirror_channel"]),
     "premium": (
         "💎 Premium",
         ["plans_text", "plans_list", "upi_id", "pay_text", "pay_photo", "premium_contact", "premium_skip_verify", "premium_skip_fsub",
-         "premium_no_autodelete"],
+         "premium_no_autodelete", "premium_reminder", "premium_remind_before"],
     ),
 }
-BOOL = {"free_notice", "maintenance", "shortener_alias", "permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
-NUM = {"free_limit", "alias_length", "redirect_timer", "link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
+BOOL = {"premium_reminder", "premium_skip_cooldown", "free_notice", "maintenance", "shortener_alias", "permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
+NUM = {"link_cooldown", "premium_remind_before", "free_limit", "alias_length", "redirect_timer", "link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
 RAW = {"welcome_photo", "welcome_buttons", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
        "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url", "permalink_bot", "site_name", "site_tagline", "plans_list", "pay_photo", "upi_id"}
 
@@ -163,7 +170,8 @@ async def settings_cb(client, q):
             "free": "\n\nHow many links a new user can open before verification starts. 0 = verify at once.",
             "mirror": "\n\nEvery file saved with /genlink and /custom_batch is also copied here. If the main DB channel "
                       "is lost, links keep working from this channel. Use /setmirror to set it.",
-            "maint": "\n\nWhen ON, normal users only see the maintenance message. Admins keep working.",
+            "cooldown": "\n\nSeconds a user must wait after opening a link before opening the next one. 0 = off. Admins are never limited.",
+        "maint": "\n\nWhen ON, normal users only see the maintenance message. Admins keep working.",
         }.get(page, "")
         return await edit(q.message, f"{PAGES[page][0]} settings{hint}", await page_kb(page))
     key = d[2:]
@@ -346,6 +354,7 @@ async def help_cmd(client, m):
         "/setlog – set the log channel (#NewUser, #BotRestarted)\n"
         "/revoke – revoke a permanent link\n"
         "/setmirror /swapdb – mirror (backup) channel\n"
+        "/status – bot health, channels and statistics\n"
         "/restart – restart the bot (owner)\n"
         "/stats /broadcast /cancel"
     )
@@ -528,3 +537,74 @@ async def swapdb(client, m):
         "✅ The mirror channel is now the main DB channel.\n"
         "Old links keep working through their mirror copies. Set a new mirror with /setmirror."
     )
+
+
+# ---------------- /status ----------------
+STARTED = time.time()
+
+
+def _mem_mb():
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024
+    except Exception:
+        pass
+    return None
+
+
+async def _chan_state(client, cid):
+    if not cid:
+        return "— not set"
+    try:
+        chat = await client.get_chat(int(cid))
+    except Exception as e:
+        return f"❌ cannot open ({html.escape(str(e))[:60]})"
+    ok = await is_bot_admin(client, int(cid))
+    title = html.escape(getattr(chat, "title", None) or str(cid))
+    return f"✅ {title}" if ok else f"⚠️ {title} (the bot is not an admin)"
+
+
+@Client.on_message(filters.command("status") & PM)
+async def status(client, m):
+    t0 = time.time()
+    try:
+        await db.cli.admin.command("ping")
+        mongo = f"✅ OK ({int((time.time() - t0) * 1000)} ms)"
+    except Exception as e:
+        mongo = f"❌ {html.escape(str(e))[:80]}"
+    try:
+        st = await db.cli[DB_NAME].command("dbStats")
+        size = f"{st.get('dataSize', 0) / 1048576:.1f} MB data / {st.get('storageSize', 0) / 1048576:.1f} MB stored"
+    except Exception:
+        size = "n/a"
+    users = await db.users.count_documents({})
+    prem = await db.premium.count_documents({"until": {"$gt": time.time()}})
+    pend = await db.payments.count_documents({"status": "pending"})
+    fsubs = await db.fsub.count_documents({})
+    mem = _mem_mb()
+    mode = int(db.get("verify_mode") or 0)
+    flow = "Server" if int(db.get("verify_via_server") or 0) else "Direct"
+    has = lambda n: "✅ set" if db.get(f"v{n}_api_url") and db.get(f"v{n}_api_key") else "— not set"  # noqa: E731
+    free = int(db.get("free_limit") or 0)
+    cd = int(db.get("link_cooldown") or 0)
+    lines = [
+        "📊 <b>Bot status</b>",
+        "",
+        f"⏱ Uptime: <b>{fmt_time(time.time() - STARTED)}</b>" + (f"   🧠 Memory: <b>{mem:.0f} MB</b>" if mem else ""),
+        f"🗄 MongoDB: {mongo}",
+        f"💾 Database size: <b>{size}</b>",
+        "",
+        f"👥 Users: <b>{users}</b>   💎 Premium: <b>{prem}</b>   💳 Pending payments: <b>{pend}</b>",
+        f"📢 Force-sub channels: <b>{fsubs}</b>",
+        "",
+        f"📦 DB channel: {await _chan_state(client, db.get('db_channel'))}",
+        f"🪞 Mirror channel: {await _chan_state(client, db.get('mirror_channel'))}",
+        f"📝 Log channel: {await _chan_state(client, db.get('log_channel'))}",
+        "",
+        f"🔐 Verification: <b>{'Off' if not mode else f'{mode} step(s)'}</b> ({flow})   Shortener 1: {has(1)}   Shortener 2: {has(2)}",
+        f"🎁 Free limit: <b>{free if free else 'Off'}</b>   ⏱ Cooldown: <b>{fmt_time(cd) if cd else 'Off'}</b>",
+        f"🛠 Maintenance: <b>{'ON' if db.get('maintenance') else 'Off'}</b>   🌐 Website links: <b>{'ON' if db.get('permalink_enabled') else 'Off'}</b>",
+    ]
+    await m.reply("\n".join(lines))

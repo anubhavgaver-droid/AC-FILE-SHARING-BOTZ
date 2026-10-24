@@ -259,3 +259,40 @@ async def pay_decide(client, q):
             await client.edit_message_caption(chat, mid, f"{doc.get('caption', '')}\n\n{verdict}")
         except Exception:
             pass
+
+
+# ---------------- expiry reminders ----------------
+async def _notify(client, uid, text):
+    try:
+        await client.send_message(uid, text, reply_markup=plans_markup())
+        return 1
+    except Exception as e:  # user blocked the bot etc.
+        log.info("could not notify %s: %s", uid, e)
+        return 0
+
+
+async def send_reminders(client):
+    """One pass: warn users whose premium ends soon (once per expiry date) and tell those whose premium just ended."""
+    if not db.get("premium_reminder"):
+        return 0
+    now = time.time()
+    before = int(db.get("premium_remind_before") or 86400)
+    sent = 0
+    async for d in db.premium.find({"until": {"$gt": now, "$lte": now + before}}):
+        if d.get("reminded") == d["until"]:
+            continue
+        sent += await _notify(
+            client, d["_id"],
+            f"⏰ <b>Your premium ends in {fmt_time(d['until'] - now)}.</b>\n"
+            f"📅 Expires: <b>{fmt_date(d['until'])}</b>\n\nRenew now so you do not lose access.",
+        )
+        await db.premium.update_one({"_id": d["_id"]}, {"$set": {"reminded": d["until"]}})
+    async for d in db.premium.find({"until": {"$lte": now, "$gt": now - 7 * 86400}}):
+        if d.get("expired_sent") == d["until"]:
+            continue
+        sent += await _notify(
+            client, d["_id"],
+            "⌛ <b>Your premium has ended.</b>\nRenew it to get back verification-free links, streaming and more.",
+        )
+        await db.premium.update_one({"_id": d["_id"]}, {"$set": {"expired_sent": d["until"]}})
+    return sent

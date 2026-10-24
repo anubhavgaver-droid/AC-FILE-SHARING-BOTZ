@@ -8,6 +8,7 @@ from pyrogram.types import InlineKeyboardMarkup as Markup
 
 from database import db
 from helpers import (
+    cooldown_left,
     deliver,
     fill,
     fmt_time,
@@ -114,6 +115,15 @@ async def start(client, m):
                 return await m.reply(
                     fill(db.get("fsub_text"), m.from_user),
                     reply_markup=fsub_markup(client, missing, payload),
+                )
+        if not (prem and db.get("premium_skip_cooldown")):
+            left = await cooldown_left(uid)  # checked before the free-link counter is touched
+            if left:
+                return await m.reply(
+                    fill(db.get("cooldown_text"), m.from_user, time=fmt_time(left)),
+                    reply_markup=Markup(
+                        [[Btn("🔄 Try Again", url=f"https://t.me/{client.me.username}?start={payload}")]]
+                    ),
                 )
         if not (prem and db.get("premium_skip_verify")):
             stage = await next_stage(uid)
