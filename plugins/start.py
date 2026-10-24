@@ -1,11 +1,14 @@
 import asyncio
 import html
+import platform
 import time
 
+import pyrogram
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton as Btn
 from pyrogram.types import InlineKeyboardMarkup as Markup
 
+from config import BOT_VERSION
 from database import db
 from helpers import (
     cooldown_left,
@@ -30,6 +33,7 @@ async def welcome_parts(user):
     rows = parse_buttons(db.get("welcome_buttons"))
     rows.extend(sponsor_rows())
     rows.append([Btn("💎 Premium Plans", callback_data="plans")])
+    rows.append([Btn("✨ Features", callback_data="features"), Btn("ℹ️ About", callback_data="about")])
     if await db.is_admin(user.id):  # shown to admins/owner only
         rows.append([Btn("⚙️ Settings", callback_data="pg_main")])
     return text, Markup(rows)
@@ -151,3 +155,70 @@ async def home_cb(client, q):
     text, kb = await welcome_parts(q.from_user)
     await q.answer()
     await edit_msg(q.message, text, kb)
+
+
+# ---------------- Features / About panels ----------------
+def _pkg_version(*names):
+    import importlib.metadata as md
+
+    for n in names:
+        try:
+            return n, md.version(n)
+        except Exception:
+            continue
+    return None, ""
+
+
+def about_text(client):
+    dist, ver = _pkg_version("pyrofork", "pyrotgfork", "pyrogram")
+    if not dist:
+        dist, ver = "pyrogram", getattr(pyrogram, "__version__", "")
+    _, motor_v = _pkg_version("motor")
+    name = html.escape((db.get("developer_name") or "Bot Admin").strip())
+    lines = [
+        "ℹ️ <b>About this bot</b>",
+        "",
+        f"🤖 Bot: @{client.me.username}",
+        f"🏷 Version: <b>{html.escape(BOT_VERSION)}</b>",
+        f"📚 Library: <b>Pyrogram</b> ({dist} {ver})".replace(" )", ")"),
+        f"🐍 Language: <b>Python {platform.python_version()}</b>",
+        "🗄 Database: <b>MongoDB</b>" + (f" (Motor {motor_v})" if motor_v else ""),
+        f"👨‍💻 Developer: <b>{name}</b>",
+    ]
+    extra = (db.get("about_extra") or "").strip()
+    if extra:
+        lines += ["", extra]
+    return "\n".join(lines)
+
+
+def developer_url():
+    link = (db.get("developer_link") or "").strip()
+    if link.startswith("@"):
+        link = f"https://t.me/{link[1:]}"
+    return link if link.startswith("http") else None
+
+
+async def _show_panel(q, text, kb):
+    """Edits the welcome message (text or photo caption); if Telegram refuses (e.g. caption too long), sends a new message."""
+    try:
+        await edit_msg(q.message, text, kb)
+    except Exception:
+        await q.message.reply(text, reply_markup=kb, disable_web_page_preview=True)
+
+
+@Client.on_callback_query(filters.regex("^features$"))
+async def features_cb(client, q):
+    await q.answer()
+    kb = Markup([[Btn("💎 Premium Plans", callback_data="plans")], [Btn("⬅️ Back", callback_data="home")]])
+    await _show_panel(q, db.get("features_text"), kb)
+
+
+@Client.on_callback_query(filters.regex("^about$"))
+async def about_cb(client, q):
+    await q.answer()
+    rows = []
+    url = developer_url()
+    if url:
+        rows.append([Btn("👨‍💻 Developer", url=url)])
+    rows.append([Btn("⬅️ Back", callback_data="home")])
+    await _show_panel(q, about_text(client), Markup(rows))

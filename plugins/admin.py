@@ -55,6 +55,10 @@ LABELS = {
     "plans_text": "Plans Text",
     "plans_list": "Plans List (buttons)",
     "upi_id": "UPI ID",
+    "features_text": "Features Text",
+    "developer_name": "Developer Name",
+    "developer_link": "Developer Link",
+    "about_extra": "About: Extra Line",
     "join_enabled": "Channel Join Links",
     "join_expire": "Invite Valid For",
     "join_text": "Join Message",
@@ -101,6 +105,7 @@ PAGES = {
     "website": ("🌐 Website", ["permalink_enabled", "permalink_bot", "link_expire", "redirect_timer", "site_name", "site_tagline"]),
     "stream": ("🎬 Streaming", ["stream_enabled", "stream_expire", "stream_base_url"]),
     "free": ("🎁 Free Limit", ["free_limit", "free_notice"]),
+    "about": ("ℹ️ About & Features", ["features_text", "developer_name", "developer_link", "about_extra"]),
     "joinch": ("📡 Channel Links", ["join_enabled", "join_expire", "join_text"]),
     "cooldown": ("⏱ Cooldown", ["link_cooldown", "cooldown_text", "premium_skip_cooldown"]),
     "maint": ("🛠 Maintenance", ["maintenance", "maintenance_text"]),
@@ -114,7 +119,7 @@ PAGES = {
 BOOL = {"join_enabled", "premium_reminder", "premium_skip_cooldown", "free_notice", "maintenance", "shortener_alias", "permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
 NUM = {"join_expire", "link_cooldown", "premium_remind_before", "free_limit", "alias_length", "redirect_timer", "link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
 RAW = {"welcome_photo", "welcome_buttons", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
-       "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url", "permalink_bot", "site_name", "site_tagline", "plans_list", "pay_photo", "upi_id"}
+       "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url", "permalink_bot", "site_name", "site_tagline", "plans_list", "pay_photo", "upi_id", "developer_name", "developer_link"}
 
 
 def show(key):
@@ -183,6 +188,7 @@ async def settings_cb(client, q):
                       "is lost, links keep working from this channel. Use /setmirror to set it.",
             "cooldown": "\n\nSeconds a user must wait after opening a link before opening the next one. 0 = off. Admins are never limited.",
         "joinch": "\n\nConnect private channels, then make one-time join links with /chanlink. Tap a 🗑 button to disconnect a channel.",
+        "about": "\n\nShown when a user taps Features or About on /start. Keep Features Text under ~900 characters so it also fits when the welcome message has a photo. The library, language, database and bot version are filled in automatically.",
         "maint": "\n\nWhen ON, normal users only see the maintenance message. Admins keep working.",
         }.get(page, "")
         return await edit(q.message, f"{PAGES[page][0]} settings{hint}", await page_kb(page))
