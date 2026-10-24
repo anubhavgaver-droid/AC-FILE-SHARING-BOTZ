@@ -17,7 +17,7 @@ from config import API_HASH, API_ID, BOT_TOKEN, PORT
 from database import db
 import stream
 import weblinks
-from helpers import log_event, now_ist, set_menu
+from helpers import log_event, now_ist, revoke_expired_joins, set_menu
 import smallcaps
 
 smallcaps.patch()
@@ -61,6 +61,7 @@ async def delete_loop():
                     log.warning("delete failed: %s", e)
                 await db.dq.delete_one({"_id": d["_id"]})
             await db.tokens.delete_many({"at": {"$lt": time.time() - 86400}})
+            await revoke_expired_joins(app)
         except Exception as e:
             log.error("delete loop: %s", e)
         await asyncio.sleep(20)

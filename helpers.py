@@ -72,6 +72,9 @@ ADMIN_CMDS = [
     ("cancel", "Cancel the current action"),
     ("revoke", "Revoke a permanent link"),
     ("setlog", "Set the log channel"),
+    ("connect", "Connect a private channel"),
+    ("channels", "List connected channels"),
+    ("chanlink", "Make a join link for a connected channel"),
     ("status", "Show bot health and statistics"),
     ("setmirror", "Set the mirror (backup) channel"),
     ("swapdb", "Make the mirror the main DB channel"),
@@ -511,8 +514,110 @@ async def mirror_save(client, src, chan, db_mid):
         return str(e)
 
 
+def _fmt_size(n):
+    n = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{int(n)} B" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+
+
+def describe_post(msg) -> str:
+    """Short description of a channel post: what it is, plus file name and size."""
+    for kind in ("video", "audio", "voice", "animation", "video_note", "document", "photo"):
+        media = getattr(msg, kind, None)
+        if media:
+            name = getattr(media, "file_name", None) or kind
+            size = getattr(media, "file_size", 0) or 0
+            return f"{kind} — {html.escape(name)}" + (f" ({_fmt_size(size)})" if size else "")
+    txt = (getattr(msg, "text", None) or getattr(msg, "caption", None) or "").strip().replace("\n", " ")
+    return f"text — {html.escape(txt[:60])}" if txt else "message"
+
+
+def post_url(ch, mid):
+    """Link to a post of a connected channel (works for people who joined)."""
+    if ch.get("username"):
+        return f"https://t.me/{ch['username']}/{mid}"
+    cid = str(ch["_id"])
+    return f"https://t.me/c/{cid[4:]}/{mid}" if cid.startswith("-100") else None
+
+
+async def send_join(client, m, payload):
+    """Link type 'j': gives the user a ONE-TIME invite link to a connected private channel
+    (and, if the link points at a post, a button that opens exactly that post)."""
+    uid = m.from_user.id
+    try:
+        _, chat_s, mid_s = b64d(payload).split("_")
+        chat, mid = int(chat_s), int(mid_s)
+    except Exception:
+        return await m.reply("❌ This link is invalid or has expired.")
+    if not db.get("join_enabled"):
+        return await m.reply("❌ Channel join links are turned off right now.")
+    ch = await db.channels.find_one({"_id": chat})
+    if not ch:
+        return await m.reply("❌ This channel is no longer connected.")
+    try:
+        mem = await client.get_chat_member(chat, uid)
+        member = mem.status not in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED)
+    except Exception:
+        member = False
+    ttl = int(db.get("join_expire") or 600)
+    rows = []
+    if not member:
+        try:
+            inv = await client.create_chat_invite_link(
+                chat,
+                name=f"user {uid}"[:32],
+                expire_date=datetime.now(timezone.utc) + timedelta(seconds=ttl),
+                member_limit=1,  # one person only: the link is used up by the first join
+            )
+        except Exception as e:
+            log.warning("invite link failed for %s: %s", chat, e)
+            await log_event(
+                client,
+                f"⚠️ <b>Join link error</b> for <code>{chat}</code>\n<code>{html.escape(str(e))[:150]}</code>\n"
+                "The bot needs the admin right to invite users.",
+            )
+            return await m.reply("⚠️ Could not create the invite link right now. Please contact the admin.")
+        await db.joins.insert_one({"_id": inv.invite_link, "chat": chat, "uid": uid, "exp": time.time() + ttl + 60})
+        rows.append([Btn("🔓 Join channel", url=inv.invite_link)])
+    url = post_url(ch, mid or 1)
+    if url:
+        rows.append([Btn("📄 Open the file" if mid else "📂 Open the channel", url=url)])
+    info = ""
+    if mid:
+        try:
+            msg = await client.get_messages(chat, mid)
+            if msg and not msg.empty:
+                info = f"\n\n📄 {describe_post(msg)}"
+        except Exception:
+            pass
+    if member:
+        text = "✅ <b>You are already in this channel.</b>\nTap the button below to open it."
+    else:
+        text = fill(db.get("join_text"), m.from_user, time=fmt_time(ttl), title=html.escape(ch.get("title", "")))
+    await db.touch_open(uid)  # counts as a link open for the cooldown
+    await m.reply(text + info, reply_markup=Markup(rows) if rows else None, disable_web_page_preview=True)
+
+
+async def revoke_expired_joins(client):
+    """Revokes invite links whose time is over, so old links never pile up in the channel."""
+    async for d in db.joins.find({"exp": {"$lte": time.time()}}):
+        try:
+            await client.revoke_chat_invite_link(d["chat"], d["_id"])
+        except Exception as e:
+            log.info("revoke %s failed: %s", d["_id"], e)
+        await db.joins.delete_one({"_id": d["_id"]})
+
+
 async def deliver(client, m, payload):
     uid = m.from_user.id
+    try:
+        is_join = b64d(payload).startswith("j_")
+    except Exception:
+        is_join = False
+    if is_join:
+        return await send_join(client, m, payload)
     try:
         parts = b64d(payload).split("_")
         kind = parts[0]

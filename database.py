@@ -56,6 +56,9 @@ DEFAULTS = {
     "upi_id": "",  # shown in the payment message with a Copy button
     "premium_reminder": True,  # remind users before premium ends + tell them when it ended
     "premium_remind_before": 86400,  # seconds before the end (default 1 day)
+    "join_enabled": True,  # one-time join links for connected channels
+    "join_expire": 600,  # seconds an invite link stays valid
+    "join_text": "✅ <b>Your file is ready!</b>\n\nTap <b>Join channel</b> to get in, then tap <b>Open the file</b>.\n⏳ This invite works for one person only and expires in {time}.",
     "link_cooldown": 0,  # seconds a user must wait after opening a link before the next one (0 = off)
     "cooldown_text": "⏳ <b>Please wait {time}</b> before opening another link.",
     "premium_skip_cooldown": True,
@@ -78,6 +81,8 @@ class Database:
         self.premium = d.premium
         self.links = d.links
         self.mirror = d.mirror
+        self.channels = d.connected_channels
+        self.joins = d.join_invites
         self.payments = d.payments
         self.cache = dict(DEFAULTS)
 
