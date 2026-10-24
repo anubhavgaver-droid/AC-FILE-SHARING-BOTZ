@@ -14,12 +14,15 @@ from database import DEFAULTS, db
 from helpers import (
     STATE,
     admin_f,
+    build_link,
     clear_admin_menu,
+    describe_post,
     edit_msg as edit,
     fmt_time,
     fwd_info,
     is_bot_admin,
     log_event,
+    parse_ref,
     set_admin_menu,
     shorten,
 )
@@ -52,6 +55,9 @@ LABELS = {
     "plans_text": "Plans Text",
     "plans_list": "Plans List (buttons)",
     "upi_id": "UPI ID",
+    "join_enabled": "Channel Join Links",
+    "join_expire": "Invite Valid For",
+    "join_text": "Join Message",
     "premium_reminder": "Premium Expiry Reminder",
     "premium_remind_before": "Remind Before Expiry",
     "link_cooldown": "Link Cooldown",
@@ -95,6 +101,7 @@ PAGES = {
     "website": ("🌐 Website", ["permalink_enabled", "permalink_bot", "link_expire", "redirect_timer", "site_name", "site_tagline"]),
     "stream": ("🎬 Streaming", ["stream_enabled", "stream_expire", "stream_base_url"]),
     "free": ("🎁 Free Limit", ["free_limit", "free_notice"]),
+    "joinch": ("📡 Channel Links", ["join_enabled", "join_expire", "join_text"]),
     "cooldown": ("⏱ Cooldown", ["link_cooldown", "cooldown_text", "premium_skip_cooldown"]),
     "maint": ("🛠 Maintenance", ["maintenance", "maintenance_text"]),
     "mirror": ("🪞 Mirror Channel", ["mirror_channel"]),
@@ -104,8 +111,8 @@ PAGES = {
          "premium_no_autodelete", "premium_reminder", "premium_remind_before"],
     ),
 }
-BOOL = {"premium_reminder", "premium_skip_cooldown", "free_notice", "maintenance", "shortener_alias", "permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
-NUM = {"link_cooldown", "premium_remind_before", "free_limit", "alias_length", "redirect_timer", "link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
+BOOL = {"join_enabled", "premium_reminder", "premium_skip_cooldown", "free_notice", "maintenance", "shortener_alias", "permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
+NUM = {"join_expire", "link_cooldown", "premium_remind_before", "free_limit", "alias_length", "redirect_timer", "link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
 RAW = {"welcome_photo", "welcome_buttons", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
        "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url", "permalink_bot", "site_name", "site_tagline", "plans_list", "pay_photo", "upi_id"}
 
@@ -143,6 +150,10 @@ async def page_kb(page):
         rows.append([Btn("➕ Add Channel", callback_data="fs_add")])
         async for c in db.fsub.find({}):
             rows.append([Btn(f"🗑 {c['title']} ({c['mode']})", callback_data=f"fs_del_{c['chat_id']}")])
+    if page == "joinch":
+        rows.append([Btn("➕ Connect Channel", callback_data="jc_add")])
+        async for c in db.channels.find({}):
+            rows.append([Btn(f"🗑 {c['title']}", callback_data=f"jc_del_{c['_id']}")])
     rows.append([Btn("⬅️ Back", callback_data="pg_main")])
     return Markup(rows)
 
@@ -171,6 +182,7 @@ async def settings_cb(client, q):
             "mirror": "\n\nEvery file saved with /genlink and /custom_batch is also copied here. If the main DB channel "
                       "is lost, links keep working from this channel. Use /setmirror to set it.",
             "cooldown": "\n\nSeconds a user must wait after opening a link before opening the next one. 0 = off. Admins are never limited.",
+        "joinch": "\n\nConnect private channels, then make one-time join links with /chanlink. Tap a 🗑 button to disconnect a channel.",
         "maint": "\n\nWhen ON, normal users only see the maintenance message. Admins keep working.",
         }.get(page, "")
         return await edit(q.message, f"{PAGES[page][0]} settings{hint}", await page_kb(page))
@@ -200,6 +212,8 @@ async def set_value(client, m):
     st = STATE.get(m.from_user.id)
     if st and st.get("mode") == "fsadd":
         return await fsadd_input(client, m)
+    if st and st.get("mode") == "jcadd":
+        return await jcadd_input(client, m)
     if not st or st.get("mode") != "set":
         return
     key = st["key"]
@@ -355,6 +369,7 @@ async def help_cmd(client, m):
         "/revoke – revoke a permanent link\n"
         "/setmirror /swapdb – mirror (backup) channel\n"
         "/status – bot health, channels and statistics\n"
+        "/connect /channels /chanlink – connected private channels + one-time join links\n"
         "/restart – restart the bot (owner)\n"
         "/stats /broadcast /cancel"
     )
@@ -597,7 +612,7 @@ async def status(client, m):
         f"💾 Database size: <b>{size}</b>",
         "",
         f"👥 Users: <b>{users}</b>   💎 Premium: <b>{prem}</b>   💳 Pending payments: <b>{pend}</b>",
-        f"📢 Force-sub channels: <b>{fsubs}</b>",
+        f"📢 Force-sub channels: <b>{fsubs}</b>   📡 Connected channels: <b>{await db.channels.count_documents({})}</b>",
         "",
         f"📦 DB channel: {await _chan_state(client, db.get('db_channel'))}",
         f"🪞 Mirror channel: {await _chan_state(client, db.get('mirror_channel'))}",
@@ -608,3 +623,134 @@ async def status(client, m):
         f"🛠 Maintenance: <b>{'ON' if db.get('maintenance') else 'Off'}</b>   🌐 Website links: <b>{'ON' if db.get('permalink_enabled') else 'Off'}</b>",
     ]
     await m.reply("\n".join(lines))
+
+
+# ---------------- connected channels + one-time join links ----------------
+def back_joinch():
+    return Markup([[Btn("⬅️ Channels", callback_data="pg_joinch")]])
+
+
+@Client.on_message(filters.command("connect") & PM)
+async def connect_cmd(client, m):
+    STATE[m.from_user.id] = {"mode": "jcadd"}
+    await m.reply(
+        "📡 <b>Connect a channel</b>\n\nSend the channel ID (<code>-100...</code>) or @username, "
+        "or forward any message from that channel.\n"
+        "⚠️ The bot must be an admin there, with the right to invite users.\n\n/cancel = abort",
+        reply_markup=back_joinch(),
+    )
+
+
+async def jcadd_input(client, m):
+    uid = m.from_user.id
+    txt = (m.text or "").strip()
+    if txt.startswith("/"):
+        return
+    info = fwd_info(m)
+    if info:
+        ref = info[0]
+    elif txt.lstrip("-").isdigit():
+        ref = int(txt)
+    else:
+        ref = txt.lstrip("@")
+    if not ref:
+        return await m.reply("❌ Send a channel ID, an @username, or a forwarded message from the channel.")
+    try:
+        chat = await client.get_chat(ref)
+    except Exception as e:
+        return await m.reply(f"❌ Channel not found: <code>{html.escape(str(e))}</code>")
+    if not await is_bot_admin(client, chat.id):
+        return await m.reply("❌ The bot is not an admin in that channel. Make it an admin and send it again.")
+    STATE.pop(uid, None)
+    await db.channels.update_one(
+        {"_id": chat.id}, {"$set": {"title": chat.title, "username": chat.username or "", "by": uid}}, upsert=True
+    )
+    await m.reply(
+        f"✅ <b>{html.escape(chat.title)}</b> is connected.\nMake links with /chanlink.", reply_markup=back_joinch()
+    )
+
+
+@Client.on_callback_query(filters.regex(r"^(jc_add|jc_del_)") & admin_f)
+async def jc_cb(client, q):
+    if q.data == "jc_add":
+        STATE[q.from_user.id] = {"mode": "jcadd"}
+        return await edit(
+            q.message,
+            "📡 <b>Connect a channel</b>\n\nSend the channel ID (<code>-100...</code>) or @username, "
+            "or forward any message from that channel.\n⚠️ The bot must be an admin there, with the right to "
+            "invite users.\n\n/cancel = abort",
+            back_joinch(),
+        )
+    await db.channels.delete_one({"_id": int(q.data[7:])})
+    await q.answer("Disconnected")
+    await q.message.edit_reply_markup(await page_kb("joinch"))
+
+
+@Client.on_message(filters.command("channels") & PM)
+async def channels_cmd(client, m):
+    rows = [[Btn(f"🗑 {c['title']}", callback_data=f"jc_del_{c['_id']}")] async for c in db.channels.find({})]
+    if not rows:
+        return await m.reply("No connected channels yet. Use /connect.")
+    await m.reply("📡 <b>Connected channels</b>\nTap 🗑 to disconnect one.", reply_markup=Markup(rows))
+
+
+@Client.on_message(filters.command("chanlink") & PM)
+async def chanlink_cmd(client, m):
+    chans = [c async for c in db.channels.find({})]
+    if not chans:
+        return await m.reply("No connected channels yet. Connect one with /connect first.")
+    STATE[m.from_user.id] = {"mode": "chanlink"}
+    rows = [[Btn(f"📡 {c['title']}", callback_data=f"cl_{c['_id']}")] for c in chans[:20]]
+    await m.reply(
+        "🔗 <b>One-time join link</b>\n\n• To link to <b>one file</b>: forward that post from the connected channel "
+        "here (or send its post link). I will check the post and show what it is.\n"
+        "• To link to the <b>whole channel</b>: tap the channel below.\n\n/cancel = abort",
+        reply_markup=Markup(rows),
+    )
+
+
+@Client.on_callback_query(filters.regex(r"^cl_-?\d+$") & admin_f)
+async def chanlink_pick(client, q):
+    chat = int(q.data[3:])
+    ch = await db.channels.find_one({"_id": chat})
+    if not ch:
+        return await q.answer("This channel is no longer connected.", show_alert=True)
+    STATE.pop(q.from_user.id, None)
+    link = await build_link(client, f"j_{chat}_0")
+    await q.answer()
+    await edit(
+        q.message,
+        f"✅ <b>Channel link ready</b>\n📡 {html.escape(ch['title'])}\n\n<code>{link}</code>",
+        Markup([[Btn("🔁 Share", url=f"https://t.me/share/url?url={link}")]]),
+    )
+
+
+@Client.on_message(PM, group=4)
+async def chanlink_input(client, m):
+    st = STATE.get(m.from_user.id)
+    if not st or st.get("mode") != "chanlink" or (m.text and m.text.startswith("/")):
+        return
+    try:
+        ref = await parse_ref(client, m)
+    except Exception:
+        ref = None
+    if not ref:
+        return await m.reply("❌ Forward a post from a connected channel, or send a t.me post link.")
+    chat, mid = ref
+    ch = await db.channels.find_one({"_id": chat})
+    if not ch:
+        return await m.reply("❌ That channel is not connected. Use /connect first.")
+    try:
+        msg = await client.get_messages(chat, mid)
+    except Exception as e:
+        return await m.reply(f"❌ Could not read that post: <code>{html.escape(str(e))[:120]}</code>")
+    if not msg or msg.empty:
+        return await m.reply("❌ That message does not exist (it may have been deleted).")
+    STATE.pop(m.from_user.id, None)
+    link = await build_link(client, f"j_{chat}_{mid}")
+    await m.reply(
+        f"✅ <b>One-time join link ready</b>\n📡 {html.escape(ch['title'])}\n"
+        f"📄 Post #{mid}: {describe_post(msg)}\n\n<code>{link}</code>",
+        reply_markup=Markup([[Btn("🔁 Share", url=f"https://t.me/share/url?url={link}")]]),
+        disable_web_page_preview=True,
+    )
