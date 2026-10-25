@@ -20,6 +20,7 @@ Files: bot.py, config.py, database.py, helpers.py, smallcaps.py, stream.py, webl
 - Premium expiry reminder (1 day before by default, + a notice when it ended), /status health report, link cooldown (/settings -> Cooldown)
 - Connected private channels: /connect, /channels, /chanlink -> one-time join link (optionally to one post), settings page 'Channel Links'
 - /start buttons: Features (editable text) and About (library, language, database, developer, bot version) - /settings -> About & Features
+- /start preview card: set 'Welcome Image Link' (e.g. an ibb.co image page) -> clickable image card like other bots (/settings -> Welcome)
 - Maintenance mode (/settings): normal users see a notice, admins keep working
 - Mirror channel (/setmirror, /settings -> Mirror): files are copied to a backup channel; if the main DB channel is lost, links (also permanent ones) are served from the mirror; /swapdb promotes the mirror
 - All text in English + small caps, command menu set automatically

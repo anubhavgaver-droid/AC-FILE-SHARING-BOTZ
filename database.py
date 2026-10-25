@@ -8,6 +8,9 @@ from config import BASE_URL, DB_CHANNEL, LOG_CHANNEL, DB_NAME, MONGO_URI, OWNER_
 DEFAULTS = {
     "welcome_text": "👋 <b>Hello {mention}!</b>\n\nI am a file store bot. Open a shared link to receive your files.",
     "welcome_photo": "",  # photo URL or file_id
+    "welcome_link": "",  # link whose preview card (image) is shown in /start, e.g. an ibb.co image page
+    "welcome_preview_large": True,  # bigger preview card
+    "welcome_preview_above": False,  # card above the text instead of below
     "welcome_buttons": "",  # har line: Label | https://link
     "wait_text": "⏳ <b>Please wait...</b>\nYour files are being delivered.",
     "fsub_text": "🚫 <b>Hey {mention}!</b>\n\nPlease join the channel(s) below first, then tap <b>Try Again</b>.",
