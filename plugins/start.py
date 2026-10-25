@@ -1,5 +1,6 @@
 import asyncio
 import html
+import logging
 import platform
 import time
 
@@ -28,6 +29,38 @@ from helpers import (
 )
 
 
+log = logging.getLogger("start")
+
+
+def welcome_link():
+    link = (db.get("welcome_link") or "").strip()
+    return link if link.startswith("http") else ""
+
+
+def _card_body(text, link):
+    # The link hides behind an invisible character: Telegram builds the clickable preview card
+    # (image from the page) but no URL text is shown in the message.
+    return f'{text}<a href="{html.escape(link, quote=True)}">\u200b</a>'
+
+
+def _preview_options(link):
+    from pyrogram.types import LinkPreviewOptions
+
+    return LinkPreviewOptions(
+        url=link,
+        prefer_large_media=bool(db.get("welcome_preview_large")),
+        show_above_text=bool(db.get("welcome_preview_above")),
+    )
+
+
+async def _with_preview(send, body, kb, link):
+    """send(body, reply_markup=..., [link_preview_options=...]); the options are used when the library has them."""
+    try:
+        return await send(body, reply_markup=kb, link_preview_options=_preview_options(link))
+    except (ImportError, TypeError):  # older library: Telegram still builds its default (small) card
+        return await send(body, reply_markup=kb)
+
+
 async def welcome_parts(user):
     text = fill(db.get("welcome_text"), user)
     rows = parse_buttons(db.get("welcome_buttons"))
@@ -41,6 +74,14 @@ async def welcome_parts(user):
 
 async def welcome(client, m):
     text, kb = await welcome_parts(m.from_user)
+    link = welcome_link()
+    if link:  # preview-card style wins over the attached photo
+        try:
+            return await _with_preview(
+                lambda body, **kw: client.send_message(m.chat.id, body, **kw), _card_body(text, link), kb, link
+            )
+        except Exception as e:
+            log.warning("welcome card failed, using the normal welcome: %s", e)
     photo = db.get("welcome_photo")
     if photo:
         try:
@@ -154,7 +195,13 @@ async def dl_cancel(client, q):
 async def home_cb(client, q):
     text, kb = await welcome_parts(q.from_user)
     await q.answer()
-    await edit_msg(q.message, text, kb)
+    msg, link = q.message, welcome_link()
+    if link and not (getattr(msg, "photo", None) or getattr(msg, "video", None) or getattr(msg, "document", None)):
+        try:  # bring the preview card back when the user comes back from Features / About
+            return await _with_preview(lambda body, **kw: msg.edit_text(body, **kw), _card_body(text, link), kb, link)
+        except Exception as e:
+            log.info("home card edit skipped: %s", e)
+    await edit_msg(msg, text, kb)
 
 
 # ---------------- Features / About panels ----------------
