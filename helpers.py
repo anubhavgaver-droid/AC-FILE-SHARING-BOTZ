@@ -321,6 +321,17 @@ def fsub_markup(client, missing, payload):
 
 
 # ---------------- verification ----------------
+def _other_day(ts) -> bool:
+    """True when `ts` falls on an earlier calendar day (IST) than today."""
+    return datetime.fromtimestamp(ts, IST).date() != datetime.now(IST).date()
+
+
+def secs_to_midnight() -> int:
+    now = datetime.now(IST)
+    nxt = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return int((nxt - now).total_seconds())
+
+
 async def next_stage(uid) -> int:
     """0 = no verification needed, otherwise the next stage (1 or 2)."""
     mode = int(db.get("verify_mode") or 0)
@@ -336,7 +347,10 @@ async def next_stage(uid) -> int:
     elif passed >= 2:
         stage = 0 if age < expire else 1
     elif passed == 1:
-        stage = 0 if age < gap else 2  # free access inside the gap, then the 2nd verification
+        if db.get("verify_midnight_reset") and _other_day(v.get("at", 0)):
+            stage = 1  # 1/2 was done on an earlier day and 2/2 was never finished: start again
+        else:
+            stage = 0 if age < gap else 2  # free access inside the gap, then the 2nd verification
     else:
         stage = 1
     if stage and not db.get(f"v{stage}_api_url"):
