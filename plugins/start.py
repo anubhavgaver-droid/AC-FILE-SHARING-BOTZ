@@ -226,8 +226,11 @@ def _pkg_version(*names):
     return None, ""
 
 
+LIB_NAMES = {"kurigram": "Kurigram", "pyrofork": "Pyrofork", "pyrotgfork": "PyroTGFork", "pyrogram": "Pyrogram"}
+
+
 def about_text(client):
-    dist, ver = _pkg_version("pyrofork", "pyrotgfork", "pyrogram")
+    dist, ver = _pkg_version("kurigram", "pyrofork", "pyrotgfork", "pyrogram")
     if not dist:
         dist, ver = "pyrogram", getattr(pyrogram, "__version__", "")
     _, motor_v = _pkg_version("motor")
@@ -237,7 +240,7 @@ def about_text(client):
         "",
         f"🤖 Bot: @{client.me.username}",
         f"🏷 Version: <b>{html.escape(BOT_VERSION)}</b>",
-        f"📚 Library: <b>Pyrogram</b> ({dist} {ver})".replace(" )", ")"),
+        "📚 Library: <b>" + f"{LIB_NAMES.get(dist, dist)} {ver}".strip() + "</b>" + (" (Pyrogram fork)" if dist != "pyrogram" else ""),
         f"🐍 Language: <b>Python {platform.python_version()}</b>",
         "🗄 Database: <b>MongoDB</b>" + (f" (Motor {motor_v})" if motor_v else ""),
         f"👨‍💻 Developer: <b>{name}</b>",
