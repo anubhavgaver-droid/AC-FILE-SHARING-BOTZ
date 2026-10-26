@@ -18,8 +18,10 @@ from database import db
 import stream
 import weblinks
 from helpers import log_event, now_ist, revoke_expired_joins, set_menu
+import compat
 import smallcaps
 
+compat.patch()  # must run before smallcaps.patch()
 smallcaps.patch()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")

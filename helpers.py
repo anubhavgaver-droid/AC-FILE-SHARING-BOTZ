@@ -266,8 +266,8 @@ def fwd_info(m):
         return chat.id, mid
     fo = getattr(m, "forward_origin", None)
     if fo:
-        chat = getattr(fo, "chat", None)
-        mid = getattr(fo, "message_id", None)
+        chat = getattr(fo, "chat", None) or getattr(fo, "sender_chat", None)
+        mid = getattr(fo, "message_id", None) or getattr(fo, "id", None)
         if chat and mid:
             return chat.id, mid
     return None

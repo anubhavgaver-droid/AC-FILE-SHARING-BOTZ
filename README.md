@@ -28,4 +28,5 @@ Files: bot.py, config.py, database.py, helpers.py, smallcaps.py, stream.py, webl
 
 ## Render env vars
 API_ID, API_HASH, BOT_TOKEN, MONGO_URI, OWNER_ID, DB_CHANNEL (optional), LOG_CHANNEL (optional), BASE_URL (optional)
+Library: Kurigram 2.2.25 (requirements.txt). After switching from pyrofork use Render -> Manual Deploy -> 'Clear build cache & deploy'.
 Start command: python bot.py

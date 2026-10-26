@@ -78,6 +78,7 @@ DEFAULTS = {
     "developer_name": "Bot Admin",
     "developer_link": "",  # @username or https:// link (adds a Developer button)
     "about_extra": "",  # optional extra line at the bottom of the About panel
+    "quote_replies": False,  # False = replies are NOT sent as a quoted reply to the user's message
     "link_cooldown": 0,  # seconds a user must wait after opening a link before the next one (0 = off)
     "cooldown_text": "⏳ <b>Please wait {time}</b> before opening another link.",
     "premium_skip_cooldown": True,
