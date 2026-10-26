@@ -26,6 +26,7 @@ from helpers import (
     edit_msg,
     log_event,
     now_ist,
+    secs_to_midnight,
 )
 
 
@@ -122,10 +123,19 @@ async def handle_verify(client, m, token):
     if t["stage"] < mode and gap <= 0 and db.get(f"v{t['stage'] + 1}_api_url"):
         return await send_verify(client, m, t["stage"] + 1, t["payload"])
     if t["stage"] < mode:
-        await m.reply(
-            f"✅ Verification {t['stage']}/{mode} complete! You have access for {fmt_time(gap)}, "
-            f"and then verification {t['stage'] + 1} will be required."
-        )
+        reset = bool(db.get("verify_midnight_reset"))
+        if reset and gap > secs_to_midnight():
+            await m.reply(
+                f"✅ Verification {t['stage']}/{mode} complete! You have access until 12 midnight (IST). "
+                "After that you will start again from verification 1."
+            )
+        else:
+            await m.reply(
+                f"✅ Verification {t['stage']}/{mode} complete! You have access for {fmt_time(gap)}, "
+                f"and then verification {t['stage'] + 1} will be required."
+                + (" Please finish it before 12 midnight (IST), otherwise you will start again from verification 1."
+                   if reset else "")
+            )
     else:
         await m.reply(f"✅ Verified! You now have access for {fmt_time(db.get('verify_expire'))}.")
     if t["payload"]:

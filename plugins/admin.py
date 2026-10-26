@@ -47,6 +47,7 @@ LABELS = {
     "v2_api_key": "Verify-2 API Key",
     "verify_expire": "Verify Valid For",
     "verify_gap": "Gap 1st→2nd Verify",
+    "verify_midnight_reset": "Reset 1/2 at Midnight (IST)",
     "verify_min_time": "Min Verify Time",
     "verify_tutorial": "Tutorial Link",
     "verify_text": "Verify Text",
@@ -99,7 +100,7 @@ PAGES = {
     "verify": (
         "🔐 Verification",
         ["verify_mode", "verify_via_server", "shortener_alias", "alias_length", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
-         "verify_expire", "verify_gap", "verify_min_time", "verify_tutorial", "verify_text"],
+         "verify_expire", "verify_gap", "verify_midnight_reset", "verify_min_time", "verify_tutorial", "verify_text"],
     ),
     "files": ("🗑 Files", ["protect_content", "auto_delete", "auto_delete_text", "wait_text"]),
     "fsub": ("📢 Force-Sub", ["fsub_text"]),
@@ -119,7 +120,7 @@ PAGES = {
          "premium_no_autodelete", "premium_reminder", "premium_remind_before"],
     ),
 }
-BOOL = {"welcome_preview_large", "welcome_preview_above", "join_enabled", "premium_reminder", "premium_skip_cooldown", "free_notice", "maintenance", "shortener_alias", "permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
+BOOL = {"verify_midnight_reset", "welcome_preview_large", "welcome_preview_above", "join_enabled", "premium_reminder", "premium_skip_cooldown", "free_notice", "maintenance", "shortener_alias", "permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
 NUM = {"join_expire", "link_cooldown", "premium_remind_before", "free_limit", "alias_length", "redirect_timer", "link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
 RAW = {"welcome_photo", "welcome_buttons", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
        "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url", "permalink_bot", "site_name", "site_tagline", "plans_list", "pay_photo", "upi_id", "developer_name", "developer_link", "welcome_link"}
