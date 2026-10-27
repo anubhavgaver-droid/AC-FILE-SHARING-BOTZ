@@ -79,6 +79,7 @@ DEFAULTS = {
     "developer_link": "",  # @username or https:// link (adds a Developer button)
     "about_extra": "",  # optional extra line at the bottom of the About panel
     "button_style": "primary",  # colour of every inline button: primary (blue) | success (green) | danger (red) | off
+    "smart_colors": True,  # Cancel buttons red, settings switches green when ON / blue when OFF
     "quote_replies": False,  # False = replies are NOT sent as a quoted reply to the user's message
     "link_cooldown": 0,  # seconds a user must wait after opening a link before the next one (0 = off)
     "cooldown_text": "⏳ <b>Please wait {time}</b> before opening another link.",

@@ -4,6 +4,7 @@
    (set 'Quote Replies' ON in /settings -> General to quote again).
 3. Every inline button gets the colour chosen in /settings -> General -> Button Colour
    (default: blue, enums.ButtonStyle.PRIMARY) when the installed library supports button styles.
+   With 'Smart Button Colours' ON: Cancel buttons are red, settings switches are green (✅) / blue (❌).
 2. Old keyword `disable_web_page_preview=True` is translated to `link_preview_options` on forks that
    replaced it, and dropped on forks that have neither, so the same code runs on any of them.
 """
@@ -43,6 +44,31 @@ def _adapt(orig, quote_default=False):
     return wrapper
 
 
+def _enum(name):
+    try:
+        from pyrogram.enums import ButtonStyle
+
+        return getattr(ButtonStyle, name.upper())
+    except Exception:
+        return None
+
+
+def _smart_style(text, callback_data):
+    """Smart colours: Cancel buttons are red; a settings switch is green when ON (✅) and blue when OFF (❌).
+    Returns a style name or None. (The small caps layer has already converted `text` when this runs.)"""
+    cb = callback_data if isinstance(callback_data, str) else ""
+    label = (text or "").lower() if isinstance(text, str) else ""
+    if cb.endswith("cancel") or "cancel" in label or "ᴄᴀɴᴄᴇʟ" in label:
+        return "danger"
+    if cb.startswith("k_") and isinstance(text, str):
+        tail = text.rstrip()
+        if tail.endswith("✅"):
+            return "success"
+        if tail.endswith("❌"):
+            return "primary"
+    return None
+
+
 def _style_value():
     name = (db.get("button_style") or "").strip().lower()
     if not name or name == "off":
@@ -70,7 +96,12 @@ def patch_buttons():
     @functools.wraps(orig)
     def init(self, *args, **kw):
         if "style" not in kw:
-            style = _style_value()
+            style = _style_value()  # the base colour from /settings; 'off' switches every colour off
+            if style is not None and db.get("smart_colors"):
+                text = args[0] if args else kw.get("text")
+                cb = kw["callback_data"] if "callback_data" in kw else (args[1] if len(args) > 1 else None)
+                name = _smart_style(text, cb)
+                style = (_enum(name) if name else None) or style
             if style is not None:
                 kw["style"] = style
         orig(self, *args, **kw)

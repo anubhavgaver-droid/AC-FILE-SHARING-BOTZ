@@ -23,6 +23,7 @@ Files: bot.py, config.py, database.py, helpers.py, smallcaps.py, stream.py, webl
 - /start preview card: set 'Welcome Image Link' (e.g. an ibb.co image page) -> clickable image card like other bots (/settings -> Welcome)
 - 'Reset 1/2 at Midnight (IST)': a user who finished only verification 1 and not 2 starts again from 1 after 12 midnight (/settings -> Verification)
 - Coloured buttons: every inline button gets style=ButtonStyle.PRIMARY (blue) by default; change colour in /settings -> General -> Button Colour
+- Smart button colours: Cancel buttons red, settings switches green (ON) / blue (OFF), everything else blue (/settings -> General)
 - Maintenance mode (/settings): normal users see a notice, admins keep working
 - Mirror channel (/setmirror, /settings -> Mirror): files are copied to a backup channel; if the main DB channel is lost, links (also permanent ones) are served from the mirror; /swapdb promotes the mirror
 - All text in English + small caps, command menu set automatically

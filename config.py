@@ -14,4 +14,4 @@ LOG_CHANNEL = int(os.environ.get("LOG_CHANNEL", "0"))  # default, can be changed
 # Public URL for streaming (Render provides RENDER_EXTERNAL_URL automatically)
 BASE_URL = (os.environ.get("BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL", "")).rstrip("/")
 
-BOT_VERSION = "v16"  # shown in the About panel
+BOT_VERSION = "v17"  # shown in the About panel
