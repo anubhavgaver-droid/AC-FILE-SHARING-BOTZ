@@ -2,6 +2,8 @@
 
 1. Replies are NOT quoted by default: every Message.reply / reply_text gets quote=False
    (set 'Quote Replies' ON in /settings -> General to quote again).
+3. Every inline button gets the colour chosen in /settings -> General -> Button Colour
+   (default: blue, enums.ButtonStyle.PRIMARY) when the installed library supports button styles.
 2. Old keyword `disable_web_page_preview=True` is translated to `link_preview_options` on forks that
    replaced it, and dropped on forks that have neither, so the same code runs on any of them.
 """
@@ -41,6 +43,42 @@ def _adapt(orig, quote_default=False):
     return wrapper
 
 
+def _style_value():
+    name = (db.get("button_style") or "").strip().lower()
+    if not name or name == "off":
+        return None
+    try:
+        from pyrogram.enums import ButtonStyle
+
+        return getattr(ButtonStyle, name.upper())
+    except Exception:
+        return None
+
+
+def patch_buttons():
+    """style=enums.ButtonStyle.PRIMARY on every InlineKeyboardButton (if this library version supports it)."""
+    from pyrogram.types import InlineKeyboardButton
+
+    orig = InlineKeyboardButton.__init__
+    try:
+        params = inspect.signature(orig).parameters
+    except (TypeError, ValueError):
+        return False
+    if "style" not in params:
+        return False  # older library: no coloured buttons, nothing to do
+
+    @functools.wraps(orig)
+    def init(self, *args, **kw):
+        if "style" not in kw:
+            style = _style_value()
+            if style is not None:
+                kw["style"] = style
+        orig(self, *args, **kw)
+
+    InlineKeyboardButton.__init__ = init
+    return True
+
+
 def patch():
     from pyrogram import Client
     from pyrogram.types import Message
@@ -59,3 +97,4 @@ def patch():
         if id(orig) not in done:  # `reply` is usually the same function as `reply_text`
             done[id(orig)] = _adapt(orig, quote_default=is_reply)
         setattr(cls, name, done[id(orig)])
+    patch_buttons()
