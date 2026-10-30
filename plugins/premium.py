@@ -9,7 +9,6 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton as Btn
 from pyrogram.types import InlineKeyboardMarkup as Markup
 
-from config import OWNER_ID
 from database import db
 from helpers import STATE, admin_f, fmt_time
 from smallcaps import sc
@@ -180,7 +179,7 @@ async def pay_cancel(client, q):
 
 @Client.on_message(filters.command("cancel") & filters.private & ~admin_f)
 async def user_cancel(client, m):
-    if (STATE.get(m.from_user.id) or {}).get("mode") == "pay":
+    if (STATE.get(m.from_user.id) or {}).get("mode") in ("pay", "clone_token"):
         STATE.pop(m.from_user.id, None)
         await m.reply("❌ Cancelled.")
 
@@ -211,7 +210,7 @@ async def got_screenshot(client, m):
         f"📦 Plan: <b>{html.escape(label)}</b>\n💰 Amount: <b>{html.escape(price)}</b>"
     )
     kb = Markup([[Btn("✅ Approve", callback_data=f"payok_{rid}"), Btn("❌ Reject", callback_data=f"payno_{rid}")]])
-    targets = {OWNER_ID}
+    targets = {db.owner_id}
     async for a in db.admins.find({}):
         targets.add(a["_id"])
     sent_to = []

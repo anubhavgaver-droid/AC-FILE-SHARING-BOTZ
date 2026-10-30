@@ -9,7 +9,7 @@ from pyrogram.errors import FloodWait
 from pyrogram.types import InlineKeyboardButton as Btn
 from pyrogram.types import InlineKeyboardMarkup as Markup
 
-from config import DB_NAME, OWNER_ID
+from database import CLONE_FORCED
 from database import DEFAULTS, db
 from helpers import (
     STATE,
@@ -28,7 +28,19 @@ from helpers import (
 )
 
 PM = filters.private & admin_f
-owner_f = filters.user(OWNER_ID)
+
+
+async def _is_owner(_, __, m):
+    return bool(getattr(m, "from_user", None)) and m.from_user.id == db.owner_id
+
+
+async def _is_main_owner(_, __, m):
+    return db.is_main and await _is_owner(_, __, m)
+
+
+owner_f = filters.create(_is_owner)  # the owner of the bot that is handling the message (a clone's owner in a clone)
+main_owner_f = filters.create(_is_main_owner)  # only the main bot's owner (e.g. /restart restarts the whole server)
+HIDDEN_IN_CLONE = {"stream", "website", "clones"}  # settings pages that do not apply to clones
 
 LABELS = {
     "welcome_text": "Welcome Text",
@@ -59,6 +71,9 @@ LABELS = {
     "plans_text": "Plans Text",
     "plans_list": "Plans List (buttons)",
     "upi_id": "UPI ID",
+    "clone_enabled": "Clone Bots",
+    "clone_max_total": "Max Clones on this Server",
+    "clone_max_per_user": "Max Clones per User",
     "quote_replies": "Quote Replies",
     "button_style": "Button Colour",
     "smart_colors": "Smart Button Colours",
@@ -112,6 +127,7 @@ PAGES = {
     "website": ("🌐 Website", ["permalink_enabled", "permalink_bot", "link_expire", "redirect_timer", "site_name", "site_tagline"]),
     "stream": ("🎬 Streaming", ["stream_enabled", "stream_expire", "stream_base_url"]),
     "free": ("🎁 Free Limit", ["free_limit", "free_notice"]),
+    "clones": ("🧬 Clones", ["clone_enabled", "clone_max_total", "clone_max_per_user"]),
     "general": ("⚙️ General", ["button_style", "smart_colors", "quote_replies"]),
     "about": ("ℹ️ About & Features", ["features_text", "developer_name", "developer_link", "about_extra"]),
     "joinch": ("📡 Channel Links", ["join_enabled", "join_expire", "join_text"]),
@@ -124,8 +140,8 @@ PAGES = {
          "premium_no_autodelete", "premium_reminder", "premium_remind_before"],
     ),
 }
-BOOL = {"smart_colors", "quote_replies", "verify_midnight_reset", "welcome_preview_large", "welcome_preview_above", "join_enabled", "premium_reminder", "premium_skip_cooldown", "free_notice", "maintenance", "shortener_alias", "permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
-NUM = {"join_expire", "link_cooldown", "premium_remind_before", "free_limit", "alias_length", "redirect_timer", "link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
+BOOL = {"clone_enabled", "smart_colors", "quote_replies", "verify_midnight_reset", "welcome_preview_large", "welcome_preview_above", "join_enabled", "premium_reminder", "premium_skip_cooldown", "free_notice", "maintenance", "shortener_alias", "permalink_enabled", "stream_enabled", "protect_content", "premium_skip_verify", "premium_skip_fsub", "premium_no_autodelete"}
+NUM = {"clone_max_total", "clone_max_per_user", "join_expire", "link_cooldown", "premium_remind_before", "free_limit", "alias_length", "redirect_timer", "link_expire", "stream_expire", "auto_delete", "verify_expire", "verify_gap", "verify_min_time"}
 RAW = {"welcome_photo", "welcome_buttons", "v1_api_url", "v1_api_key", "v2_api_url", "v2_api_key",
        "verify_tutorial", "premium_contact", "sponsor_label", "sponsor_url", "stream_base_url", "permalink_bot", "site_name", "site_tagline", "plans_list", "pay_photo", "upi_id", "developer_name", "developer_link", "welcome_link"}
 
@@ -144,6 +160,8 @@ def show(key):
         return f"{int(v)}s" if v else "Instant"
     if key == "button_style":
         return {"primary": "🔵 Blue", "success": "🟢 Green", "danger": "🔴 Red"}.get(v or "off", "Off")
+    if key in ("clone_max_total", "clone_max_per_user"):
+        return str(int(v or 0))
     if key == "free_limit":
         return f"{int(v)} link(s)" if v else "Off (verify at once)"
     if key == "alias_length":
@@ -154,13 +172,17 @@ def show(key):
 
 
 def main_kb():
-    rows = [[Btn(t, callback_data=f"pg_{k}")] for k, (t, _) in PAGES.items()]
+    rows = [[Btn(t, callback_data=f"pg_{k}")] for k, (t, _) in PAGES.items() if db.is_main or k not in HIDDEN_IN_CLONE]
     rows.append([Btn("⬅️ Back", callback_data="home")])
     return Markup(rows)
 
 
 async def page_kb(page):
-    rows = [[Btn(f"{LABELS[k]}: {show(k)}", callback_data=f"k_{k}")] for k in PAGES[page][1]]
+    rows = [
+        [Btn(f"{LABELS[k]}: {show(k)}", callback_data=f"k_{k}")]
+        for k in PAGES[page][1]
+        if db.is_main or k not in CLONE_FORCED  # switches that do not work in clones are hidden there
+    ]
     if page == "fsub":
         rows.append([Btn("➕ Add Channel", callback_data="fs_add")])
         async for c in db.fsub.find({}):
@@ -201,6 +223,7 @@ async def settings_cb(client, q):
         "about": "\n\nShown when a user taps Features or About on /start. Keep Features Text under ~900 characters so it also fits when the welcome message has a photo. The library, language, database and bot version are filled in automatically.",
         "welcome": "\n\nWelcome Image Link: when set, /start shows a clickable preview card of that link (an image page such as ibb.co works well) instead of the attached photo. Tapping the card opens the link. Leave it empty to use the attached photo.",
         "general": "\n\nButton Colour: blue / green / red / off for every button of the bot. Smart Button Colours: Cancel buttons red, settings switches green when ON and blue when OFF (needs a library and Telegram app that support coloured buttons). Quote Replies OFF (default): the bot sends its answers as normal messages. ON: every answer is a quoted reply to the user's message.",
+        "clones": "\n\nWhen ON, users can request their own copy of this bot with /clone (they create a bot in @BotFather and send you its token). You accept or reject every request. Each clone has its own settings, users and premium. Every clone uses memory on your server, so keep the limits low. Manage them with /clones.",
         "maint": "\n\nWhen ON, normal users only see the maintenance message. Admins keep working.",
         }.get(page, "")
         return await edit(q.message, f"{PAGES[page][0]} settings{hint}", await page_kb(page))
@@ -343,7 +366,7 @@ async def deladmin(client, m):
 @Client.on_message(filters.command("admins") & PM)
 async def admins(client, m):
     ids = [str(a["_id"]) async for a in db.admins.find({})]
-    await m.reply("👑 Owner: <code>%s</code>\nAdmins: %s" % (OWNER_ID, ", ".join(f"<code>{i}</code>" for i in ids) or "—"))
+    await m.reply("👑 Owner: <code>%s</code>\nAdmins: %s" % (db.owner_id, ", ".join(f"<code>{i}</code>" for i in ids) or "—"))
 
 
 # ---------------- stats / broadcast / help ----------------
@@ -518,7 +541,7 @@ async def setlog(client, m):
     await m.reply(f"✅ Log channel set: <code>{cid}</code>")
 
 
-@Client.on_message(filters.command("restart") & filters.private & owner_f)
+@Client.on_message(filters.command("restart") & filters.private & main_owner_f)
 async def restart(client, m):
     msg = await m.reply("🔄 <b>Restarting the bot...</b>")
     await db.cfg.update_one(
@@ -612,7 +635,7 @@ async def status(client, m):
     except Exception as e:
         mongo = f"❌ {html.escape(str(e))[:80]}"
     try:
-        st = await db.cli[DB_NAME].command("dbStats")
+        st = await db.cli[db.name].command("dbStats")
         size = f"{st.get('dataSize', 0) / 1048576:.1f} MB data / {st.get('storageSize', 0) / 1048576:.1f} MB stored"
     except Exception:
         size = "n/a"
