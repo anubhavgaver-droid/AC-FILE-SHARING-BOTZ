@@ -1,3 +1,4 @@
+import contextvars
 import time
 
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -80,6 +81,9 @@ DEFAULTS = {
     "about_extra": "",  # optional extra line at the bottom of the About panel
     "button_style": "primary",  # colour of every inline button: primary (blue) | success (green) | danger (red) | off
     "smart_colors": True,  # Cancel buttons red, settings switches green when ON / blue when OFF
+    "clone_enabled": False,  # users may request their own copy (clone) of this bot
+    "clone_max_total": 3,  # clones running on this server at most
+    "clone_max_per_user": 1,
     "quote_replies": False,  # False = replies are NOT sent as a quoted reply to the user's message
     "link_cooldown": 0,  # seconds a user must wait after opening a link before the next one (0 = off)
     "cooldown_text": "⏳ <b>Please wait {time}</b> before opening another link.",
@@ -87,10 +91,30 @@ DEFAULTS = {
 }
 
 
+# Clone bots get their own database; these settings can never be switched on there ...
+CLONE_FORCED = {"permalink_enabled": False, "verify_via_server": 0, "stream_enabled": False, "clone_enabled": False}
+# ... and these start empty, so a clone never inherits the main bot's channels / URLs.
+CLONE_BLANK = {"db_channel": 0, "log_channel": 0, "stream_base_url": ""}
+
+
+class Bot:
+    """One running bot: the main bot (id 0) or a clone."""
+
+    def __init__(self, bot_id, client, database, is_main=False, username=""):
+        self.id, self.client, self.db, self.is_main, self.username = bot_id, client, database, is_main, username
+
+
+BOTS = {}  # bot id -> Bot (running bots)
+CURRENT = contextvars.ContextVar("current_bot", default=None)  # the bot that is handling the current update
+
+
 class Database:
-    def __init__(self):
-        self.cli = AsyncIOMotorClient(MONGO_URI)
-        d = self.cli[DB_NAME]
+    def __init__(self, cli=None, name=None, owner_id=None, is_main=True):
+        self.cli = cli or AsyncIOMotorClient(MONGO_URI)
+        self.name = name or DB_NAME
+        self.owner_id = OWNER_ID if owner_id is None else owner_id
+        self.is_main = is_main
+        d = self.cli[self.name]
         self.cfg = d.settings
         self.users = d.users
         self.admins = d.admins
@@ -106,7 +130,11 @@ class Database:
         self.channels = d.connected_channels
         self.joins = d.join_invites
         self.payments = d.payments
+        self.clones = d.clones  # clone registry (used on the main database)
+        self.clone_requests = d.clone_requests
         self.cache = dict(DEFAULTS)
+        if not is_main:
+            self.cache.update(CLONE_BLANK)
 
     async def load(self):
         doc = await self.cfg.find_one({"_id": "main"}) or {}
@@ -117,6 +145,8 @@ class Database:
 
     # ---- settings ----
     def get(self, key):
+        if not self.is_main and key in CLONE_FORCED:
+            return CLONE_FORCED[key]
         return self.cache.get(key, DEFAULTS.get(key))
 
     async def set(self, key, value):
@@ -135,7 +165,7 @@ class Database:
 
     # ---- admins ----
     async def is_admin(self, uid):
-        return uid == OWNER_ID or bool(await self.admins.find_one({"_id": uid}))
+        return uid == self.owner_id or bool(await self.admins.find_one({"_id": uid}))
 
     # ---- join requests ----
     async def add_req(self, uid, chat_id):
@@ -197,4 +227,22 @@ class Database:
         await self.dq.insert_one({"chat_id": chat_id, "ids": ids, "at": time.time() + delay})
 
 
-db = Database()
+MAIN_DB = Database()
+
+
+class _DbProxy:
+    """`db` always points at the database of the bot that is handling the current update
+    (the main database when no clone is selected)."""
+
+    def _cur(self):
+        bot = CURRENT.get()
+        return bot.db if bot is not None else MAIN_DB
+
+    def __getattr__(self, name):
+        return getattr(self._cur(), name)
+
+    def __setattr__(self, name, value):
+        setattr(self._cur(), name, value)
+
+
+db = _DbProxy()

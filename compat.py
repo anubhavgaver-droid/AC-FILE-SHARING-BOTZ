@@ -8,10 +8,11 @@
 2. Old keyword `disable_web_page_preview=True` is translated to `link_preview_options` on forks that
    replaced it, and dropped on forks that have neither, so the same code runs on any of them.
 """
+import copy
 import functools
 import inspect
 
-from database import db
+from database import CURRENT, db
 
 
 def _adapt(orig, quote_default=False):
@@ -110,6 +111,48 @@ def patch_buttons():
     return True
 
 
+def bind_handler(handler, bot):
+    """A per-client copy of a handler that selects `bot` (its database, settings, owner) every time it runs.
+    Needed because plugin handlers are shared objects but every clone must see its own data."""
+    h = copy.copy(handler)
+    cb = h.callback
+
+    async def callback(*args, **kw):
+        CURRENT.set(bot)
+        return await cb(*args, **kw)
+
+    functools.update_wrapper(callback, cb)
+    h.callback = callback
+    chk = getattr(h, "check", None)
+    if chk is not None:
+
+        async def check(*args, **kw):
+            CURRENT.set(bot)
+            return await chk(*args, **kw)
+
+        h.check = check
+    h._bot_bound = True
+    return h
+
+
+def patch_handlers():
+    from pyrogram import Client
+
+    orig = getattr(Client, "add_handler", None)
+    if orig is None:
+        return False
+
+    @functools.wraps(orig)
+    def add_handler(self, handler, group=0):
+        bot = getattr(self, "bot_ctx", None)
+        if bot is not None:
+            handler = bind_handler(handler, bot)
+        return orig(self, handler, group)
+
+    Client.add_handler = add_handler
+    return True
+
+
 def patch():
     from pyrogram import Client
     from pyrogram.types import Message
@@ -129,3 +172,4 @@ def patch():
             done[id(orig)] = _adapt(orig, quote_default=is_reply)
         setattr(cls, name, done[id(orig)])
     patch_buttons()
+    patch_handlers()

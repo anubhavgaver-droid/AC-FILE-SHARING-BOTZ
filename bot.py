@@ -14,10 +14,11 @@ from pyrogram import Client, idle
 from pyrogram.enums import ParseMode
 
 from config import API_HASH, API_ID, BOT_TOKEN, PORT
-from database import db
+from database import BOTS, MAIN_DB, Bot, db
 import stream
 import weblinks
-from helpers import log_event, now_ist, revoke_expired_joins, set_menu
+import clonemgr
+from helpers import log_event, now_ist, set_menu
 import compat
 import smallcaps
 
@@ -36,6 +37,8 @@ app = Client(
     parse_mode=ParseMode.HTML,
     in_memory=True,
 )
+app.bot_ctx = Bot(0, app, MAIN_DB, is_main=True)  # id 0 = the main bot; set before start() so its handlers get bound
+BOTS[0] = app.bot_ctx
 
 
 async def web_server():
@@ -53,17 +56,10 @@ async def web_server():
 
 
 async def delete_loop():
-    """Auto-delete queue (stored in Mongo, survives restarts)."""
+    """Housekeeping for the main bot and every clone (queues live in Mongo and survive restarts)."""
     while True:
         try:
-            async for d in db.dq.find({"at": {"$lte": time.time()}}):
-                try:
-                    await app.delete_messages(d["chat_id"], d["ids"])
-                except Exception as e:
-                    log.warning("delete failed: %s", e)
-                await db.dq.delete_one({"_id": d["_id"]})
-            await db.tokens.delete_many({"at": {"$lt": time.time() - 86400}})
-            await revoke_expired_joins(app)
+            await clonemgr.maintenance_pass()
         except Exception as e:
             log.error("delete loop: %s", e)
         await asyncio.sleep(20)
@@ -84,13 +80,13 @@ async def ping_loop():
 
 
 async def reminder_loop():
-    """Premium expiry reminders, checked every 10 minutes."""
+    """Premium expiry reminders (main bot and clones), checked every 10 minutes."""
     from plugins.premium import send_reminders
 
     await asyncio.sleep(60)
     while True:
         try:
-            await send_reminders(app)
+            await clonemgr.reminders_pass(send_reminders)
         except Exception as e:
             log.error("reminder loop: %s", e)
         await asyncio.sleep(600)
@@ -121,6 +117,7 @@ async def main():
     log.info("Bot started as @%s", app.me.username)
     await set_menu(app)
     await startup_notice()
+    await clonemgr.start_all()  # bring the approved clone bots online
     asyncio.create_task(delete_loop())
     asyncio.create_task(ping_loop())
     asyncio.create_task(reminder_loop())

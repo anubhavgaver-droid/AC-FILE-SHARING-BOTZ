@@ -19,15 +19,67 @@ from pyrogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefau
 from pyrogram.types import InlineKeyboardButton as Btn
 from pyrogram.types import InlineKeyboardMarkup as Markup
 
-from config import BOT_TOKEN, OWNER_ID
-from database import db
+from config import BOT_TOKEN
+from database import CURRENT, db
 from smallcaps import sc
 
 log = logging.getLogger("filestore")
 
 # temporary admin state: {uid: {"mode": ...}}
-STATE = {}
-CANCEL = set()  # delivery cancel flags (user ids)
+def _bot_key():
+    bot = CURRENT.get()
+    return bot.id if bot is not None else 0
+
+
+class ScopedState:
+    """Conversation state per bot: the same user talking to the main bot and to a clone never shares state."""
+
+    def __init__(self):
+        self._d = {}
+
+    def _k(self, uid):
+        return (_bot_key(), uid)
+
+    def __getitem__(self, uid):
+        return self._d[self._k(uid)]
+
+    def __setitem__(self, uid, value):
+        self._d[self._k(uid)] = value
+
+    def __delitem__(self, uid):
+        del self._d[self._k(uid)]
+
+    def __contains__(self, uid):
+        return self._k(uid) in self._d
+
+    def get(self, uid, default=None):
+        return self._d.get(self._k(uid), default)
+
+    def pop(self, uid, *default):
+        return self._d.pop(self._k(uid), *default)
+
+    def clear(self):
+        key = _bot_key()
+        for k in [k for k in self._d if k[0] == key]:
+            del self._d[k]
+
+
+class ScopedSet:
+    def __init__(self):
+        self._s = set()
+
+    def add(self, uid):
+        self._s.add((_bot_key(), uid))
+
+    def discard(self, uid):
+        self._s.discard((_bot_key(), uid))
+
+    def __contains__(self, uid):
+        return (_bot_key(), uid) in self._s
+
+
+STATE = ScopedState()
+CANCEL = ScopedSet()  # delivery cancel flags (user ids)
 
 
 # ---------------- log channel ----------------
@@ -88,10 +140,20 @@ OWNER_CMDS = [
 ]
 
 
+MAIN_USER_CMDS = [("clone", "Create your own bot like this one")]
+MAIN_ADMIN_CMDS = [("clones", "Manage clone bots")]
+
+
+def _user_cmds():
+    return USER_CMDS + (MAIN_USER_CMDS if db.is_main else [])
+
+
 async def set_admin_menu(client, uid):
     if not uid:
         return
-    cmds = USER_CMDS + ADMIN_CMDS + (OWNER_CMDS if uid == OWNER_ID else [])
+    cmds = _user_cmds() + ADMIN_CMDS + (MAIN_ADMIN_CMDS if db.is_main else [])
+    if uid == db.owner_id:  # /restart restarts the whole server: main owner only
+        cmds += [c for c in OWNER_CMDS if db.is_main or c[0] != "restart"]
     try:
         await client.set_bot_commands([BotCommand(c, sc(d)) for c, d in cmds], scope=BotCommandScopeChat(uid))
     except Exception as e:  # the admin may not have started the bot yet
@@ -106,8 +168,8 @@ async def clear_admin_menu(client, uid):
 
 
 async def set_menu(client):
-    await client.set_bot_commands([BotCommand(c, sc(d)) for c, d in USER_CMDS], scope=BotCommandScopeDefault())
-    ids = {OWNER_ID}
+    await client.set_bot_commands([BotCommand(c, sc(d)) for c, d in _user_cmds()], scope=BotCommandScopeDefault())
+    ids = {db.owner_id}
     async for a in db.admins.find({}):
         ids.add(a["_id"])
     for uid in ids:
@@ -435,7 +497,7 @@ async def send_verify(client, m, stage, payload):
             log.warning("verify %s shortener failed: %s", stage, err)
             try:
                 await client.send_message(
-                    OWNER_ID,
+                    db.owner_id,
                     f"⚠️ <b>Verification {stage} error</b>\n<code>{html.escape(err)}</code>\n\nTest: /testverify {stage}",
                 )
             except Exception:
