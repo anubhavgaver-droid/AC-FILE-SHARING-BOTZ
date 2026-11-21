@@ -14,13 +14,15 @@ from database import DEFAULTS, db
 from helpers import (
     STATE,
     admin_f,
-    build_link,
+    build_links,
     clear_admin_menu,
     describe_post,
     edit_msg as edit,
     fmt_time,
     fwd_info,
     is_bot_admin,
+    links_markup,
+    links_text,
     log_event,
     parse_ref,
     set_admin_menu,
@@ -761,12 +763,12 @@ async def chanlink_pick(client, q):
     if not ch:
         return await q.answer("This channel is no longer connected.", show_alert=True)
     STATE.pop(q.from_user.id, None)
-    link = await build_link(client, f"j_{chat}_0")
+    links = await build_links(client, f"j_{chat}_0")
     await q.answer()
     await edit(
         q.message,
-        f"✅ <b>Channel link ready</b>\n📡 {html.escape(ch['title'])}\n\n<code>{link}</code>",
-        Markup([[Btn("🔁 Share", url=f"https://t.me/share/url?url={link}")]]),
+        f"✅ <b>Channel link ready</b>\n📡 {html.escape(ch['title'])}\n\n{links_text(links)}",
+        links_markup(links),
     )
 
 
@@ -792,10 +794,10 @@ async def chanlink_input(client, m):
     if not msg or msg.empty:
         return await m.reply("❌ That message does not exist (it may have been deleted).")
     STATE.pop(m.from_user.id, None)
-    link = await build_link(client, f"j_{chat}_{mid}")
+    links = await build_links(client, f"j_{chat}_{mid}")
     await m.reply(
         f"✅ <b>One-time join link ready</b>\n📡 {html.escape(ch['title'])}\n"
-        f"📄 Post #{mid}: {describe_post(msg)}\n\n<code>{link}</code>",
-        reply_markup=Markup([[Btn("🔁 Share", url=f"https://t.me/share/url?url={link}")]]),
+        f"📄 Post #{mid}: {describe_post(msg)}\n\n{links_text(links)}",
+        reply_markup=links_markup(links),
         disable_web_page_preview=True,
     )

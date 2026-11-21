@@ -6,15 +6,31 @@ from pyrogram.types import InlineKeyboardButton as Btn
 from pyrogram.types import InlineKeyboardMarkup as Markup
 
 from database import db
-from helpers import STATE, admin_f, build_link, is_bot_admin, mirror_save, parse_ref
+from helpers import (
+    COPY_CACHE,
+    STATE,
+    admin_f,
+    build_links,
+    is_bot_admin,
+    links_markup,
+    links_text,
+    mirror_save,
+    parse_ref,
+)
 
 PM = filters.private & admin_f
 
 STOP_KB = Markup([[Btn("🛑 Stop & Get Link", callback_data="cb_stop")]])
 
 
-def share_kb(link):
-    return Markup([[Btn("🔁 Share", url=f"https://t.me/share/url?url={link}")]])
+@Client.on_callback_query(filters.regex(r"^cp_[0-9a-f]{8}$"))
+async def copy_fallback(client, q):
+    """Fallback for the copy buttons on libraries without Telegram's copy button."""
+    text = COPY_CACHE.get(q.data[3:])
+    if not text:
+        return await q.answer("This button has expired. Copy the link from the message above.", show_alert=True)
+    await q.answer("Tap the link in the new message to copy it.")
+    await client.send_message(q.message.chat.id, f"<code>{html.escape(text)}</code>")
 
 
 @Client.on_message(filters.command("cancel") & PM)
@@ -61,11 +77,11 @@ async def stop_custom(client, q):
     STATE.pop(q.from_user.id)
     key = secrets.token_urlsafe(6)
     await db.batches.insert_one({"_id": key, "chat_id": int(db.get("db_channel")), "ids": st["ids"]})
-    link = await build_link(client, f"c_{key}")
+    links = await build_links(client, f"c_{key}")
     await q.message.edit_text(
-        f"✅ <b>Custom batch ready</b> ({len(st['ids'])} files)\n\n<code>{link}</code>"
+        f"✅ <b>Custom batch ready</b> ({len(st['ids'])} files)\n\n{links_text(links)}"
         + (f"\n⚠️ Mirror copy failed for {st['mfail']} item(s)." if st.get("mfail") else ""),
-        reply_markup=share_kb(link),
+        reply_markup=links_markup(links),
         disable_web_page_preview=True,
     )
 
@@ -97,9 +113,9 @@ async def flow(client, m):
             return await m.reply(f"❌ Could not save to the DB channel: <code>{e}</code>")
         merr = await mirror_save(client, m, chan, copied.id)
         if mode == "single":
-            link = await build_link(client, f"s_{chan}_{copied.id}")
+            links = await build_links(client, f"s_{chan}_{copied.id}")
             warn = f"\n⚠️ Mirror copy failed: <code>{html.escape(merr)[:150]}</code>" if merr else ""
-            return await m.reply(f"✅ <code>{link}</code>{warn}", reply_markup=share_kb(link), quote=True,
+            return await m.reply(f"✅ {links_text(links)}{warn}", reply_markup=links_markup(links), quote=True,
                                  disable_web_page_preview=True)
         st["ids"].append(copied.id)
         if merr:
@@ -134,9 +150,9 @@ async def flow(client, m):
             return await m.reply("❌ The last message must come from the same channel as the first.")
         STATE.pop(uid)
         first, last = sorted((st["first"], msg_id))
-        link = await build_link(client, f"b_{chat_id}_{first}_{last}")
+        links = await build_links(client, f"b_{chat_id}_{first}_{last}")
         await m.reply(
-            f"✅ <b>Batch ready</b> ({last - first + 1} messages)\n\n<code>{link}</code>",
-            reply_markup=share_kb(link),
+            f"✅ <b>Batch ready</b> ({last - first + 1} messages)\n\n{links_text(links)}",
+            reply_markup=links_markup(links),
             disable_web_page_preview=True,
         )
