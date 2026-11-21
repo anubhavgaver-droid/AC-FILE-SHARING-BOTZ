@@ -25,6 +25,7 @@ Files: bot.py, config.py, database.py, helpers.py, smallcaps.py, stream.py, webl
 - Coloured buttons: every inline button gets style=ButtonStyle.PRIMARY (blue) by default; change colour in /settings -> General -> Button Colour
 - Smart button colours: Cancel buttons red, settings switches green (ON) / blue (OFF), everything else blue (/settings -> General)
 - Clone bots: /clone (user request) -> admin Accept/Reject -> own bot with its own settings, users and premium; /clones to manage; /settings -> Clones (on/off, limits). Set CLONE_SECRET env once (encrypts clone tokens).
+- Links: with Permanent Links ON every new link shows BOTH the original bot link and the website link, with Copy + Share buttons for each of them (Permanent Links OFF keeps the single Share button)
 - Maintenance mode (/settings): normal users see a notice, admins keep working
 - Mirror channel (/setmirror, /settings -> Mirror): files are copied to a backup channel; if the main DB channel is lost, links (also permanent ones) are served from the mirror; /swapdb promotes the mirror
 - All text in English + small caps, command menu set automatically

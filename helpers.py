@@ -9,6 +9,7 @@ import math
 import re
 import secrets
 import time
+from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
 
 import aiohttp
@@ -199,19 +200,86 @@ def make_link(client, raw: str) -> str:
     return f"https://t.me/{client.me.username}?start={b64e(raw)}"
 
 
-async def build_link(client, raw: str) -> str:
-    """Website (permanent) link when the feature is on, otherwise the direct bot link."""
+async def _permalink(raw: str):
+    """The website (permanent) link, or None when the feature is off / there is no public server URL."""
     base = base_url()
-    if db.get("permalink_enabled") and base:
-        code = secrets.token_urlsafe(5)
-        ttl = int(db.get("link_expire") or 0)
-        now = time.time()
-        await db.links.insert_one(
-            {"_id": code, "payload": b64e(raw), "at": now, "exp": now + ttl if ttl else 0,
-             "revoked": False, "hits": 0}
+    if not (db.get("permalink_enabled") and base):
+        return None
+    code = secrets.token_urlsafe(5)
+    ttl = int(db.get("link_expire") or 0)
+    now = time.time()
+    await db.links.insert_one(
+        {"_id": code, "payload": b64e(raw), "at": now, "exp": now + ttl if ttl else 0, "revoked": False, "hits": 0}
+    )
+    return f"{base}/f/{code}"
+
+
+async def build_links(client, raw: str) -> dict:
+    """Both links for one payload: the original bot link ('direct') and, when Permanent Links is ON,
+    the website link ('perm', else None)."""
+    return {
+        "direct": make_link(client, raw),
+        "perm": await _permalink(raw),
+        # Permanent Links is ON but there is no public server URL, so no website link could be made
+        "warn": bool(db.get("permalink_enabled")) and not base_url(),
+    }
+
+
+async def build_link(client, raw: str) -> str:
+    """One link only (kept for old callers): the permanent link when it exists, otherwise the bot link."""
+    links = await build_links(client, raw)
+    return links["perm"] or links["direct"]
+
+
+COPY_CACHE = {}  # short key -> text, used by the fallback copy button
+
+
+def copy_button(label: str, text: str):
+    """A button that copies `text` to the clipboard when tapped (Telegram's copy button). On a library
+    without it (or for text longer than 256 characters) a normal button sends the text in a tap-to-copy message."""
+    if len(text) <= 256:
+        try:
+            from pyrogram.types import CopyTextButton
+
+            return Btn(label, copy_text=CopyTextButton(text=text))
+        except Exception:
+            pass
+    key = secrets.token_hex(4)
+    COPY_CACHE[key] = text
+    if len(COPY_CACHE) > 500:
+        COPY_CACHE.pop(next(iter(COPY_CACHE)))
+    return Btn(label, callback_data=f"cp_{key}")
+
+
+def links_text(links: dict) -> str:
+    """The link(s) as tap-to-copy text. Two labelled links when Permanent Links is ON."""
+    if links.get("perm"):
+        return (
+            f"🌐 <b>Permanent link</b>\n<code>{links['perm']}</code>\n\n"
+            f"🤖 <b>Bot link</b>\n<code>{links['direct']}</code>"
         )
-        return f"{base}/f/{code}"
-    return make_link(client, raw)
+    note = (
+        "\n\n⚠️ Permanent Links is ON, but the Server Public URL is not set, so only the bot link was made. "
+        "Set it in /settings → Streaming."
+        if links.get("warn")
+        else ""
+    )
+    return f"<code>{links['direct']}</code>{note}"
+
+
+def links_markup(links: dict):
+    """Permanent Links ON: copy AND share buttons for both links (permanent link + bot link).
+    Permanent Links OFF: the Share button, as before."""
+
+    def share(link):
+        return f"https://t.me/share/url?url={quote(link, safe='')}"
+
+    if links.get("perm"):
+        return Markup([
+            [copy_button("📋 Copy Permanent", links["perm"]), copy_button("📋 Copy Bot Link", links["direct"])],
+            [Btn("🔁 Share Permanent", url=share(links["perm"])), Btn("🔁 Share Bot Link", url=share(links["direct"]))],
+        ])
+    return Markup([[Btn("🔁 Share", url=share(links["direct"]))]])
 
 
 # ---------------- misc ----------------
